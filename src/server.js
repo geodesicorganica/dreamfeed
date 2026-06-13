@@ -7,6 +7,7 @@ const http = require('http');
 const fs = require('fs');
 const path = require('path');
 const { buildState } = require('./state');
+const { getRepoHealth } = require('./repohealth');
 
 const PORT = process.env.DREAMFEED_PORT ? parseInt(process.env.DREAMFEED_PORT, 10) : 4173;
 const PUBLIC_DIR = path.join(__dirname, '..', 'public');
@@ -37,6 +38,19 @@ const server = http.createServer((req, res) => {
     }
     res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
     res.end(JSON.stringify(state));
+    return;
+  }
+  if (url === '/api/repo-health') {
+    // Goal C — read-only git inspection. Never mutates the repo.
+    let health;
+    try { health = getRepoHealth(); }
+    catch (err) {
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ fatal: String(err.message || err) }));
+      return;
+    }
+    res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
+    res.end(JSON.stringify(health));
     return;
   }
   const entry = STATIC[url];
