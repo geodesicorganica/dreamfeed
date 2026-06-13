@@ -11,6 +11,8 @@ const {
 const {
   adaptStrategicInitiatives, adaptWeeklyPriorities, adaptDecisionQueue, adaptAgentDispatch,
 } = require('./objects');
+const { buildTopology, buildRoadmap } = require('./topology');
+const { adaptMilestones, adaptReviews, adaptLearningSignals } = require('./objectsB');
 
 // The five founder governance files Brief A loads. blocked_items.md is loaded
 // for provenance/freshness/source visibility only — it renders no object in
@@ -73,7 +75,7 @@ function buildState(opts = {}) {
     ...ad.objects.filter(a => a.state.value === 'pending'),
   ];
 
-  // Discovery sweep (guide §1) — surfaced for source visibility only in Brief A.
+  // Discovery sweep (guide §1) — surfaced for source visibility.
   let discovered = [];
   try {
     discovered = discoverGovernanceFiles(REPO_ROOT).map(p =>
@@ -81,6 +83,14 @@ function buildState(opts = {}) {
   } catch (err) {
     errors.push({ path: 'agents/', error: `discovery sweep failed: ${err.message}` });
   }
+
+  // ---- Brief B fast-follow surfaces (Phase 4) ----
+  const topology = buildTopology(REPO_ROOT);
+  const roadmap = buildRoadmap(REPO_ROOT);
+  const milestones = adaptMilestones(roadmap.objects, si.objects);
+  const reviews = adaptReviews(REPO_ROOT, thresholds, today);
+  const learningSignals = adaptLearningSignals(REPO_ROOT, thresholds, today);
+  errors.push(...topology.errors, ...roadmap.errors, ...milestones.errors, ...reviews.errors, ...learningSignals.errors);
 
   return {
     generatedAt: new Date().toISOString(),
@@ -95,6 +105,12 @@ function buildState(opts = {}) {
     approvals,
     approvalQueue: queue,
     discoveredGovernanceFiles: discovered,
+    // Brief B fast-follow surfaces
+    topology: { nodes: topology.nodes, edges: topology.edges, repoInventory: topology.repoInventory, tally: topology.tally },
+    roadmap: roadmap.objects,
+    milestones: milestones.objects,
+    reviews: reviews.objects,
+    learningSignals: learningSignals.objects,
     parseErrors: errors,
     counts: {
       strategicInitiatives: si.objects.length,
@@ -107,6 +123,14 @@ function buildState(opts = {}) {
       pendingGates: ad.objects.filter(a => a.state.value === 'pending').length,
       approvalQueue: queue.length,
       discoveredGovernanceFiles: discovered.length,
+      topologyNodes: topology.nodes.length,
+      topologyEdges: topology.edges.length,
+      topologyCanonicalEdges: topology.tally.Canonical,
+      topologyDerivedEdges: topology.tally.Derived,
+      roadmapPhases: roadmap.objects.length,
+      milestones: milestones.objects.length,
+      reviews: reviews.objects.length,
+      learningSignals: learningSignals.objects.length,
       parseErrors: errors.length,
     },
   };
