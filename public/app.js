@@ -5,7 +5,7 @@
 
 let state = null;
 let repoHealth = null;
-const view = { tab: 'board', filterText: '', filterStatus: '', collapsed: {}, graphSel: null };
+const view = { tab: 'overview', filterText: '', filterStatus: '', collapsed: {}, graphSel: null };
 
 const $ = (s) => document.querySelector(s);
 const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -155,6 +155,98 @@ function renderQueue() {
 }
 
 // ===========================================================================
+// Overview / Home (gate 5b r2) — default daily-use operating cockpit.
+// Composes existing state + repoHealth (no new endpoint). High-priority
+// decisions/blockers first, then status widgets; every widget links to a tab.
+// ===========================================================================
+function navlink(tab, label) { return `<span class="navlink" data-gotab="${esc(tab)}">${esc(label || 'open')} →</span>`; }
+function tile(big, label, kind, tab) {
+  return `<div class="otile otile-${kind}"${tab ? ` data-gotab="${esc(tab)}"` : ''}>
+    <div class="otile-big">${esc(String(big))}</div><div class="otile-label">${esc(label)}</div></div>`;
+}
+function owidget(title, tab, inner, ts) {
+  return `<div class="owidget"><div class="owidget-head"><h3>${esc(title)}</h3>${tab ? navlink(tab) : ''}</div>
+    ${ts ? `<div class="owidget-ts">${esc(ts)}</div>` : ''}${inner}</div>`;
+}
+function renderOverview() {
+  const open = state.approvals.filter(isOpenApproval);
+  const blockers = state.workItems.filter(o => !o.status.nys && o.status.value === 'blocked');
+  const activeInit = state.strategicInitiatives.filter(o => !o.status.nys && o.status.value === 'active');
+  const staleSrc = state.sources.filter(s => s.freshness && !s.freshness.nys && s.freshness.value.state === 'stale');
+  const h = repoHealth || {};
+  const a = (h && h.audit) || { everRun: false };
+
+  // Priority strip — at-a-glance counts; action items use alarm colours.
+  const strip = `<div class="otiles">
+    ${tile(open.length, 'open approvals', open.length ? 'amber' : 'green', 'queue')}
+    ${tile(blockers.length, 'blockers', blockers.length ? 'red' : 'green', 'board')}
+    ${tile(activeInit.length, 'active goals', 'blue', 'board')}
+    ${tile(h.clean === false ? 'dirty' : (h.clean === true ? 'clean' : '—'), 'workspace', h.clean === false ? 'amber' : 'green', 'health')}
+    ${tile(a.everRun ? (a.overall || '—') : 'never run', 'last audit', a.overall === 'pass' ? 'green' : a.overall === 'fail' ? 'red' : 'grey', 'health')}
+  </div>`;
+
+  // Needs-action widgets — approvals + blockers, above general browsing.
+  const apprList = open.length
+    ? `<ul class="olist">${open.slice(0, 6).map(o => `<li>${pill(o.state.nys ? 'n/y/s' : o.state.value, 'amber')} <span class="srclink"${o.source_evidence && !o.source_evidence.nys ? ` data-file="${esc(o.source_evidence.value.file)}"` : ''}>${esc(o.id && !o.id.nys ? o.id.value : (o.title && !o.title.nys ? o.title.value : 'approval'))}</span> <span class="odim">${esc((o.decision && !o.decision.nys ? o.decision.value : (o.title && !o.title.nys ? o.title.value : '')).slice(0, 90))}</span></li>`).join('')}</ul>`
+    : `<p class="odim">No open approvals.</p>`;
+  const blkList = blockers.length
+    ? `<ul class="olist">${blockers.map(o => `<li>${pill('blocked', 'red')} <b>${esc(o.rank.value)}</b> ${esc(o.action.value.slice(0, 80))} <span class="odim">${o.status_note && !o.status_note.nys ? esc(o.status_note.value.slice(0, 80)) : ''}</span></li>`).join('')}</ul>`
+    : `<p class="odim">No blockers.</p>`;
+  const action = `<div class="owidgets">
+    ${owidget(`Approvals — needs founder action (${open.length})`, 'queue', apprList)}
+    ${owidget(`Blockers (${blockers.length})`, 'board', blkList)}
+  </div>`;
+
+  // Status widgets.
+  const initList = activeInit.length
+    ? `<ul class="olist">${activeInit.map(o => `<li>${pill('active', 'blue')} ${esc(o.name.value)} ${freshChip(o.freshness)}</li>`).join('')}</ul>`
+    : `<p class="odim">No active initiatives.</p>`;
+
+  const lc = h.lastCommit ? `${esc(h.lastCommit.hash)} · ${esc(h.lastCommit.subject)}` : 'n/y/s';
+  const healthInner = `<div class="okv"><span>branch</span><b>${esc(h.branch || '—')}</b></div>
+    <div class="okv"><span>workspace</span><b>${h.clean === null || h.clean === undefined ? 'unknown' : (h.clean ? 'clean' : 'dirty')}</b></div>
+    <div class="okv"><span>staged / unstaged / untracked</span><b>${h.counts ? `${h.counts.staged} / ${h.counts.unstaged} / ${h.counts.untracked}` : '—'}</b></div>
+    <div class="okv"><span>last commit</span><b>${lc}</b></div>`;
+  const healthTs = h.lastCommit ? `last commit ${esc(h.lastCommit.dateLabel || h.lastCommit.date || '')}` : '';
+
+  const auditInner = a.everRun
+    ? `<div class="okv"><span>result</span><b>${pill(a.overall || '—', a.overall === 'pass' ? 'green' : a.overall === 'fail' ? 'red' : 'grey')}</b></div>
+       <div class="okv"><span>currency</span><b>${esc(a.freshness || '—')}</b></div>
+       <div class="okv"><span>checks</span><b>${(h.validationCommands || []).length} validation/test commands</b></div>`
+    : `<p class="odim">Audit never run — <span class="srclink" data-cmd="1">node tools/command-center/audit.js</span></p>`;
+  const auditTs = a.everRun ? `last run ${esc(a.lastRunLabel || '')} (${esc(a.lastRun || '')})` : 'never run';
+
+  const phaseNow = state.roadmap.find(r => !r.target_timing.nys && /now/i.test(r.target_timing.value)) || state.roadmap[0];
+  const msInner = phaseNow
+    ? `<div class="okv"><span>current phase</span><b>${fv(phaseNow.phase_label)}</b></div><p class="odim">${esc((phaseNow.scope_summary.value || '').slice(0, 150))}</p><p class="odim">Milestone state is not-yet-structured by contract (never inferred complete).</p>`
+    : `<p class="odim">No roadmap phase parsed.</p>`;
+
+  const staleInner = staleSrc.length
+    ? `<ul class="olist">${staleSrc.map(s => `<li>${pill('stale', 'red')} <span class="srclink" data-file="${esc(s.path)}">${esc(s.path)}</span> <span class="odim">${s.freshness.value.ageDays}d / ${s.freshness.value.thresholdDays}d${s.dateModified ? ' · modified ' + esc(s.dateModified) : ''}</span></li>`).join('')}</ul>`
+    : `<p class="odim">No stale source files.</p>`;
+
+  const status = `<div class="owidgets">
+    ${owidget('Active goals', 'board', initList)}
+    ${owidget('Repo health', 'health', healthInner, healthTs)}
+    ${owidget('Validation / audit', 'health', auditInner, auditTs)}
+    ${owidget('Current milestone', 'milestones', msInner)}
+    ${owidget(`Stale surfaces (${staleSrc.length})`, 'sources', staleInner)}
+  </div>`;
+
+  // Next actions — derived from open approvals + blockers.
+  const next = [
+    ...open.map(o => `Review / approve ${o.id && !o.id.nys ? o.id.value : (o.title && !o.title.nys ? o.title.value : 'approval')}`),
+    ...blockers.map(o => `Unblock ${o.rank.value}: ${o.action.value.slice(0, 70)}`),
+  ];
+  const nextInner = next.length
+    ? `<ol class="olist onum">${next.slice(0, 8).map(t => `<li>${esc(t)}</li>`).join('')}</ol>`
+    : `<p class="odim">Nothing requires founder action right now.</p>`;
+
+  const banner = `<div class="banner">Overview — daily operating cockpit. Decisions and blockers first, then status. Read-only; click any source link to open it, or a widget header to jump to its tab. As of ${esc(state.asOfDate)} · loaded ${new Date(state.generatedAt).toLocaleTimeString()}.</div>`;
+  return banner + strip + action + status + owidget('Next actions', null, nextInner);
+}
+
+// ===========================================================================
 // OS State Board — approvals ABOVE initiatives (B7), then work items, errors.
 // ===========================================================================
 function renderBoard() {
@@ -222,10 +314,44 @@ function renderTopology() {
     <span>● agent &nbsp; ▭ skill &nbsp; (violet = planned)</span>
     <span>${t.nodes.length} nodes · ${edges.length} graph edges (${t.tally.Canonical} Canonical / ${t.tally.Derived} Derived / ${t.tally.nys} n-y-s total)</span></div>`;
   const detail = renderGraphDetail(sel);
-  return `<div class="banner">Topology Map — interactive node/edge graph. Click an agent (●) or skill (▭) to inspect its overview, files, owned skills, outputs, inputs, dependencies, and edges. Edge colour = provenance (Gate C Amendment 1: edges from Phase 0b frontmatter are Canonical).</div>
+
+  // ---- Restored structured lists below the graph (gate 5b r2 B1) + accuracy
+  // panel (B2). The graph is an additional visualization layer, not a
+  // replacement: the lists below carry ALL nodes and ALL edges, including the
+  // file-target edges the node graph cannot draw.
+  const ids = new Set(t.nodes.map(n => n.id.value));
+  let fileEdges = 0;
+  for (const e of t.edges) { const to = e.to && !e.to.nys ? e.to.value : null; if (!(to && ids.has(to))) fileEdges++; }
+  const accuracy = `<div class="banner">Topology coverage (verified against source): <b>${t.nodes.length} nodes</b> (${t.nodes.filter(n => n.nodeType === 'agent').length} agents / ${t.nodes.filter(n => n.nodeType === 'skill').length} skills) · <b>${t.edges.length} edges</b> (${t.tally.Canonical} Canonical / ${t.tally.Derived} Derived / ${t.tally.nys} not-yet-structured) · <b>${edges.length} drawn in graph</b> (node→node) · <b>${fileEdges} file-target edges</b> listed below but <b>not drawn</b> in the graph (their target is a file path, not an agent/skill node). 0 prose-only (Derived) edges: this build reads Phase 0b definition-file frontmatter only (Gate C Amendment 1) and does not scan prose — any relationship that exists only in prose is not represented here. Parse errors: ${state.parseErrors.filter(e => /AGENT\.md|SKILL\.md/.test(e.path || '')).length} on definition files. All source files are clickable.</div>`;
+
+  const nodeRows = t.nodes.map(n => `<tr>
+    <td>${esc(n.id.value)}</td><td>${esc(n.nodeType)}</td>
+    <td>${esc(n.name.nys ? '—' : n.name.value)}</td>
+    <td>${n.nodeType === 'agent' ? esc(n.layer.nys ? '—' : n.layer.value) : esc(n.owning_agent.nys ? '—' : n.owning_agent.value)}</td>
+    <td>${esc(n.status.nys ? 'n/y/s' : n.status.value)}</td>
+    <td>${n.source_evidence && !n.source_evidence.nys ? `<span class="srclink" data-file="${esc(n.source_evidence.value.file)}">${esc(n.source_evidence.value.file)}</span>` : '—'}</td></tr>`).join('');
+  const nodeList = group('topo-nodes', 'Node list', `<table class="grid"><tr><th>id</th><th>type</th><th>name</th><th>layer / owner</th><th>status</th><th>source</th></tr>${nodeRows}</table>`, t.nodes.length);
+
+  const edgeRows = t.edges.map(e => {
+    const from = e.from && !e.from.nys ? e.from.value : '—';
+    const to = e.to && !e.to.nys ? e.to.value : 'not-yet-structured';
+    const type = e.type && !e.type.nys ? e.type.value : '—';
+    const tier = e.tier && !e.tier.nys ? e.tier.value : 'n-y-s';
+    const targetKind = (e.to && !e.to.nys && ids.has(e.to.value)) ? 'node' : (e.to && !e.to.nys ? 'file' : '—');
+    const provCls = tier === 'Canonical' ? 'Canonical' : tier === 'Derived' ? 'Derived' : 'Candidate';
+    const ev = e.source_evidence && !e.source_evidence.nys ? e.source_evidence.value.file : null;
+    return `<tr><td>${esc(from)}</td><td><b>${esc(type)}</b></td><td>${esc(to)}</td><td><span class="pill pill-${targetKind === 'node' ? 'blue' : targetKind === 'file' ? 'grey' : 'amber'}">${esc(targetKind)}</span></td><td><span class="prov prov-${provCls}">${esc(tier)}</span></td><td>${ev ? `<span class="srclink" data-file="${esc(ev)}">src</span>` : '—'}</td></tr>`;
+  }).join('');
+  const edgeList = group('topo-edges', 'Edge list — every edge (incl. file-target edges not drawn in the graph)', `<table class="grid"><tr><th>from</th><th>type</th><th>to</th><th>target</th><th>provenance</th><th>source</th></tr>${edgeRows}</table>`, t.edges.length);
+
+  const invRows = t.repoInventory.map(r => `<tr><td><span class="srclink" data-file="${esc(r.path.value)}">${esc(r.path.value)}</span></td><td>${esc(r.kind.value)}</td><td>${esc(String(r.hasDefinitionFrontmatter.value))}</td></tr>`).join('');
+  const repoInv = group('topo-inv', 'Repo inventory — definition files', `<table class="grid"><tr><th>path</th><th>kind</th><th>has Phase 0b frontmatter</th></tr>${invRows}</table>`, t.repoInventory.length);
+
+  return `<div class="banner">Topology Map — interactive node/edge graph <b>plus</b> the full structured node, edge, and repo-inventory lists below. The graph is an additional visualization layer, not a replacement; the lists carry every node and every edge (including file-target edges the graph cannot draw). Click an agent (●) or skill (▭) — or any list row's source — to inspect detail. Edge colour = provenance (Gate C Amendment 1: edges from Phase 0b frontmatter are Canonical).</div>
     ${legend}
     <div class="graph-wrap"><div class="graph-canvas"><svg viewBox="0 0 ${VBW} ${VBH}" preserveAspectRatio="xMidYMid meet">${edgeSvg}${nodeSvg}</svg></div>
-    <div class="graph-detail" id="graphDetail">${detail}</div></div>`;
+    <div class="graph-detail" id="graphDetail">${detail}</div></div>
+    ${accuracy}${nodeList}${edgeList}${repoInv}`;
 }
 function nodeById(id) { return state.topology.nodes.find(n => n.id.value === id); }
 function edgesFrom(id) { return state.topology.edges.filter(e => e.from && !e.from.nys && e.from.value === id); }
@@ -377,7 +503,7 @@ function render() {
   const sel = $('#filterStatus'), cur = view.filterStatus;
   sel.innerHTML = '<option value="">All statuses</option>' + statusOptions().map(s => `<option value="${esc(s)}"${s === cur ? ' selected' : ''}>${esc(s)}</option>`).join('');
   $('#loadMeta').textContent = `as of ${state.asOfDate} · loaded ${new Date(state.generatedAt).toLocaleTimeString()} · read-only`;
-  const views = { board: renderBoard, queue: renderQueue, topology: renderTopology, roadmap: renderRoadmap, milestones: renderMilestones, review: renderReview, learning: renderLearning, sources: renderSources, health: renderHealth };
+  const views = { overview: renderOverview, board: renderBoard, queue: renderQueue, topology: renderTopology, roadmap: renderRoadmap, milestones: renderMilestones, review: renderReview, learning: renderLearning, sources: renderSources, health: renderHealth };
   $('#main').innerHTML = (views[view.tab] || renderBoard)();
   wire();
 }
@@ -387,7 +513,9 @@ function wire() {
   main.querySelectorAll('.gnode').forEach(el => el.addEventListener('click', () => { view.graphSel = el.dataset.node; render(); }));
   main.querySelectorAll('[data-file]').forEach(el => el.addEventListener('click', (e) => { e.stopPropagation(); openFile(el.dataset.file); }));
   main.querySelectorAll('.card.click[data-open]').forEach(el => el.addEventListener('click', () => openFile(el.dataset.open)));
+  main.querySelectorAll('[data-gotab]').forEach(el => el.addEventListener('click', (e) => { e.stopPropagation(); goTab(el.dataset.gotab); }));
 }
+function goTab(tab) { view.tab = tab; view.filterStatus = ''; view.graphSel = null; render(); }
 
 async function load() {
   $('#loadMeta').textContent = 'loading…';
@@ -400,6 +528,7 @@ $('#tabs').addEventListener('click', (e) => { const b = e.target.closest('button
 $('#filterText').addEventListener('input', (e) => { view.filterText = e.target.value; render(); });
 $('#filterStatus').addEventListener('change', (e) => { view.filterStatus = e.target.value; render(); });
 $('#refreshBtn').addEventListener('click', load);
+$('#logo').addEventListener('click', () => goTab('overview'));
 $('#spClose').addEventListener('click', closePanel);
 document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closePanel(); });
 

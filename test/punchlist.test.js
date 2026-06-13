@@ -58,3 +58,32 @@ test('B1 Topology: node-to-node edges resolve to real nodes; provenance present'
   }
   assert.ok(nodeToNode > 0, 'expected node-to-node graph edges (owns/depends-on/reports-to/etc.)');
 });
+
+test('5b-r2 Topology accuracy: lists carry ALL nodes + ALL edges, incl. file-target', () => {
+  const st = buildState();
+  const t = st.topology;
+  const ids = new Set(t.nodes.map(n => n.id.value));
+  // Every discovered definition file is represented as a node + an inventory row.
+  assert.strictEqual(t.nodes.length, t.repoInventory.length, 'one node per definition file');
+  assert.ok(t.nodes.length >= 12, `expected >= 12 nodes, got ${t.nodes.length}`);
+  // Edge total matches the Canonical+Derived+nys tally (no silent drops in the data).
+  assert.strictEqual(t.edges.length, st.counts.topologyEdges, 'edge count matches state counts');
+  // File-target edges (produces/reads → file paths) MUST exist and be present in the
+  // data even though the node graph cannot draw them — this is the regression guard.
+  let fileTarget = 0;
+  for (const e of t.edges) { const to = e.to && !e.to.nys ? e.to.value : null; if (to && !ids.has(to)) fileTarget++; }
+  assert.ok(fileTarget > 0, 'expected file-target edges present in the data (listed, not drawn)');
+  // Every edge carries a provenance tier so the list can label it.
+  for (const e of t.edges) assert.ok(e.tier, 'every edge has a tier field');
+});
+
+test('5b-r2 Overview: state exposes everything the home dashboard composes', () => {
+  const st = buildState();
+  for (const k of ['approvals', 'workItems', 'strategicInitiatives', 'sources', 'roadmap', 'milestones']) {
+    assert.ok(Array.isArray(st[k]), `state.${k} is an array for the Overview`);
+  }
+  // Repo health (audit + validation) is the other Overview input.
+  const h = getRepoHealth();
+  assert.ok(h.audit && 'everRun' in h.audit, 'overview reads audit.everRun');
+  assert.ok(Array.isArray(h.validationCommands), 'overview reads validationCommands');
+});
