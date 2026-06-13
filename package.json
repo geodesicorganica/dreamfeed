@@ -1,0 +1,11 @@
+{
+  "name": "dreamfeed-command-center",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Dreamfeed — Stakeport OS Command Center, Operational Core (Brief A). Read-only, localhost-only cockpit over the five founder governance files. Zero runtime dependencies.",
+  "type": "commonjs",
+  "scripts": {
+    "start": "node src/server.js",
+    "test": "node --test test/*.test.js"
+  }
+}

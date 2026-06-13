@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Dreamfeed — Stakeport OS Command Center (Operational Core)</title>
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <header>
+    <h1><span class="accent">Dream</span>feed</h1>
+    <span class="subtitle">Stakeport OS Command Center — Operational Core (Brief A) · read-only</span>
+    <span class="host-note" id="hostNote">localhost-only · pull architecture · zero write-back</span>
+  </header>
+  <nav id="tabs">
+    <button data-tab="board" class="active">OS State Board</button>
+    <button data-tab="queue">Approval Queue</button>
+    <button data-tab="sources">Sources</button>
+  </nav>
+  <div class="controls">
+    <input id="filterText" type="text" placeholder="Filter (name, action, decision…)" />
+    <select id="filterStatus">
+      <option value="">All statuses</option>
+    </select>
+    <button id="refreshBtn" title="Re-reads the governance files (pull architecture)">Refresh</button>
+    <span class="meta" id="loadMeta"></span>
+  </div>
+  <main id="main"><p style="color:var(--type-muted)">Loading OS state…</p></main>
+  <script src="/app.js"></script>
+</body>
+</html>
