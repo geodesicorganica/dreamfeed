@@ -8,6 +8,33 @@ const fs = require('fs');
 const path = require('path');
 const { buildState } = require('./state');
 const { getRepoHealth } = require('./repohealth');
+const { REPO_ROOT } = require('./parse');
+
+// Read-only file viewer (item B6 — approval deep-review). Strict allowlist:
+// repo-relative path, no traversal outside REPO_ROOT, allowed text extensions
+// only, never under .git/ or node_modules/, size-capped. GET only. The cockpit
+// never writes — this only reads file text for the embedded viewer.
+const VIEW_EXT = new Set(['.md', '.json', '.js', '.html', '.css', '.txt']);
+const VIEW_MAX_BYTES = 512 * 1024;
+
+function readRepoFile(relPath) {
+  if (!relPath || typeof relPath !== 'string') return { error: 'missing path' };
+  const norm = relPath.replace(/\\/g, '/');
+  if (norm.includes('..')) return { error: 'path traversal rejected' };
+  const abs = path.resolve(REPO_ROOT, norm);
+  const rootPrefix = REPO_ROOT.endsWith(path.sep) ? REPO_ROOT : REPO_ROOT + path.sep;
+  if (abs !== REPO_ROOT && !abs.startsWith(rootPrefix)) return { error: 'outside repository' };
+  const relCheck = path.relative(REPO_ROOT, abs).replace(/\\/g, '/');
+  if (/(^|\/)(\.git|node_modules)(\/|$)/.test(relCheck)) return { error: 'path not viewable' };
+  if (!VIEW_EXT.has(path.extname(abs).toLowerCase())) return { error: 'extension not viewable' };
+  let stat;
+  try { stat = fs.statSync(abs); } catch { return { error: 'not found' }; }
+  if (!stat.isFile()) return { error: 'not a file' };
+  if (stat.size > VIEW_MAX_BYTES) return { error: `file too large (${stat.size} bytes; cap ${VIEW_MAX_BYTES})` };
+  try {
+    return { path: relCheck, size: stat.size, modified: stat.mtime.toISOString(), content: fs.readFileSync(abs, 'utf8') };
+  } catch (err) { return { error: String(err.message || err) }; }
+}
 
 const PORT = process.env.DREAMFEED_PORT ? parseInt(process.env.DREAMFEED_PORT, 10) : 4173;
 const PUBLIC_DIR = path.join(__dirname, '..', 'public');
@@ -53,6 +80,14 @@ const server = http.createServer((req, res) => {
     res.end(JSON.stringify(health));
     return;
   }
+  if (url === '/api/file') {
+    const q = req.url.split('?')[1] || '';
+    const params = new URLSearchParams(q);
+    const out = readRepoFile(params.get('path'));
+    res.writeHead(out.error ? 400 : 200, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
+    res.end(JSON.stringify(out));
+    return;
+  }
   const entry = STATIC[url];
   if (!entry) {
     res.writeHead(404, { 'Content-Type': 'text/plain' });
@@ -72,4 +107,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { server, PORT };
+module.exports = { server, PORT, readRepoFile };

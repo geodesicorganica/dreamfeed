@@ -1,63 +1,108 @@
 'use strict';
-// Goal C — Repo Health. READ-ONLY git inspection only. Runs exclusively
-// non-destructive plumbing/porcelain reads (rev-parse, status, log, rev-list)
-// with --no-optional-locks so no index lock is taken. NEVER runs commit, push,
-// reset, checkout, clean, add, or any state-changing git command. Writes zero
-// bytes to any governance/content source file (NFR1) — git reads do not touch
-// tracked working-tree files.
+// Goal C — Repo Health. READ-ONLY git inspection + read-only audit-status read.
+// Runs only non-destructive git reads (rev-parse, status, log, rev-list) with
+// --no-optional-locks. NEVER runs commit/push/reset/checkout/clean/add. Reads the
+// audit-status sidecar written by the repo-harness-auditor harness
+// (tools/command-center/audit.js) — it never writes that file. Zero write-back to
+// any governance/content source file (NFR1).
 
 const { execFileSync } = require('child_process');
+const fs = require('fs');
+const path = require('path');
 const { REPO_ROOT } = require('./parse');
 
-// Hard allowlist: only these git subcommands may ever run from this module.
 const READONLY_SUBCOMMANDS = new Set(['rev-parse', 'status', 'log', 'rev-list']);
+const AUDIT_STATUS_FILE = path.join(__dirname, '..', 'audit-status.json');
 
 function git(args) {
-  if (!READONLY_SUBCOMMANDS.has(args[0])) {
-    // Defensive: refuse anything not on the read-only allowlist.
-    throw new Error(`repohealth: refused non-read-only git subcommand "${args[0]}"`);
-  }
-  return execFileSync('git', ['--no-optional-locks', ...args], {
-    cwd: REPO_ROOT,
-    encoding: 'utf8',
-    timeout: 5000,
-    windowsHide: true,
-  }).trim();
+  if (!READONLY_SUBCOMMANDS.has(args[0])) throw new Error(`repohealth: refused non-read-only git subcommand "${args[0]}"`);
+  return execFileSync('git', ['--no-optional-locks', ...args], { cwd: REPO_ROOT, encoding: 'utf8', timeout: 5000, windowsHide: true }).trim();
 }
-
 function tryGit(args) {
   try { return { ok: true, out: git(args) }; }
   catch (err) { return { ok: false, out: null, error: String(err.message || err).split('\n')[0] }; }
 }
 
+function ageLabel(iso, now) {
+  if (!iso) return null;
+  const ms = now - new Date(iso).getTime();
+  if (isNaN(ms)) return null;
+  const min = Math.floor(ms / 60000);
+  if (min < 1) return 'just updated';
+  if (min < 60) return `${min}m ago`;
+  const hr = Math.floor(min / 60);
+  if (hr < 24) return `${hr}h ago`;
+  return `${Math.floor(hr / 24)}d ago`;
+}
+
+// The repo-harness-auditor canonical audit workflow + concrete check harness.
+const AUDIT_WORKFLOW = {
+  skill: 'repo-harness-auditor',
+  skillPurpose: 'read-only agentic-SDLC / repo-readiness audit (run via the repo-harness-auditor skill)',
+  harness: 'node tools/command-center/audit.js',
+  harnessPurpose: 'concrete read-only check harness (governance validators + cockpit tests + git snapshot) — writes audit-status.json that this panel reads',
+};
+
+function readAudit(now, lastCommitIso, clean) {
+  let raw;
+  try { raw = fs.readFileSync(AUDIT_STATUS_FILE, 'utf8'); }
+  catch { return { everRun: false, workflow: AUDIT_WORKFLOW }; }
+  let rec;
+  try { rec = JSON.parse(raw); } catch (err) { return { everRun: false, parseError: String(err.message || err), workflow: AUDIT_WORKFLOW }; }
+
+  // Freshness model (item B3): the audit is "stale" if the repo changed since it ran
+  // (working tree dirty, or a commit landed after the audit timestamp).
+  const ranAt = rec.generatedAt || null;
+  let freshness = 'current';
+  if (clean === false) freshness = 'stale';
+  else if (lastCommitIso && ranAt && new Date(lastCommitIso).getTime() > new Date(ranAt).getTime()) freshness = 'stale';
+  if (!ranAt) freshness = 'unknown';
+
+  return {
+    everRun: true,
+    workflow: AUDIT_WORKFLOW,
+    lastRun: ranAt,
+    lastRunLabel: ageLabel(ranAt, now),
+    freshness,                 // current | stale | unknown
+    overall: rec.overall || null,
+    git: rec.git || null,
+    commands: Array.isArray(rec.commands) ? rec.commands.map(c => ({
+      label: c.label, command: c.command, cwd: c.cwd,
+      status: c.status, exitCode: c.exitCode, durationMs: c.durationMs,
+      ranAt, ranAtLabel: ageLabel(ranAt, now),
+      source: 'repo-harness-auditor (audit.js)',
+      currency: freshness,     // current/stale — repo changed since the run
+      tail: c.tail || null,
+    })) : [],
+  };
+}
+
+// Reference list of checks (item B3 status model). When the audit has never run,
+// each shows "never-run"; otherwise the audit fills in status + timestamp + source.
+function neverRunCommands() {
+  return [
+    { label: 'governance frontmatter validation', command: 'node tools/governance-migration/validate.js', status: 'never-run', ranAt: null, ranAtLabel: null, source: 'repo-harness-auditor (audit.js)', currency: 'never-run' },
+    { label: 'governance schema fixtures', command: 'node tools/governance-migration/test-fixtures.js', status: 'never-run', ranAt: null, ranAtLabel: null, source: 'repo-harness-auditor (audit.js)', currency: 'never-run' },
+    { label: 'cockpit tests', command: 'npm test (tools/command-center)', status: 'never-run', ranAt: null, ranAtLabel: null, source: 'repo-harness-auditor (audit.js)', currency: 'never-run' },
+  ];
+}
+
 function getRepoHealth() {
+  const now = Date.now();
   const result = {
-    readOnly: true,
-    inspectedAt: new Date().toISOString(),
-    isRepo: true,
-    branch: null,
-    clean: null,
-    counts: { staged: 0, unstaged: 0, untracked: 0 },
-    lastCommit: null,
-    upstream: { exists: false, ahead: null, behind: null },
-    safeToProceed: null,
-    safeReason: null,
-    errors: [],
-    // Static reference list: the cockpit is read-only and does not execute or
-    // persist test runs, so "latest observed status" is not tracked here.
-    validationCommands: [
-      { command: 'npm test', cwd: 'tools/command-center', purpose: 'cockpit unit + integration tests', lastObserved: 'not tracked (run manually)' },
-      { command: 'node tools/governance-migration/validate.js', cwd: '<repo root>', purpose: 'governance frontmatter validation', lastObserved: 'not tracked (run manually)' },
-      { command: 'node tools/governance-migration/test-fixtures.js', cwd: '<repo root>', purpose: 'governance schema fixtures', lastObserved: 'not tracked (run manually)' },
-    ],
+    readOnly: true, inspectedAt: new Date(now).toISOString(), isRepo: true,
+    branch: null, clean: null, counts: { staged: 0, unstaged: 0, untracked: 0 },
+    lastCommit: null, upstream: { exists: false, ahead: null, behind: null },
+    safeToProceed: null, safeReason: null, errors: [],
+    audit: null, validationCommands: [],
   };
 
   const branch = tryGit(['rev-parse', '--abbrev-ref', 'HEAD']);
   if (!branch.ok) {
-    result.isRepo = false;
-    result.errors.push(`branch: ${branch.error}`);
-    result.safeToProceed = false;
-    result.safeReason = 'not a git repository (or git unavailable)';
+    result.isRepo = false; result.errors.push(`branch: ${branch.error}`);
+    result.safeToProceed = false; result.safeReason = 'not a git repository (or git unavailable)';
+    result.audit = readAudit(now, null, null);
+    result.validationCommands = result.audit.everRun ? result.audit.commands : neverRunCommands();
     return result;
   }
   result.branch = branch.out;
@@ -66,30 +111,22 @@ function getRepoHealth() {
   if (status.ok) {
     const lines = status.out ? status.out.split('\n').filter(Boolean) : [];
     for (const line of lines) {
-      const x = line[0]; // index (staged) status
-      const y = line[1]; // worktree (unstaged) status
       if (line.startsWith('??')) { result.counts.untracked++; continue; }
-      if (x && x !== ' ' && x !== '?') result.counts.staged++;
-      if (y && y !== ' ' && y !== '?') result.counts.unstaged++;
+      if (line[0] && line[0] !== ' ' && line[0] !== '?') result.counts.staged++;
+      if (line[1] && line[1] !== ' ' && line[1] !== '?') result.counts.unstaged++;
     }
     result.clean = lines.length === 0;
-  } else {
-    result.errors.push(`status: ${status.error}`);
-  }
+  } else { result.errors.push(`status: ${status.error}`); }
 
   const log = tryGit(['log', '-1', '--format=%h%x1f%s%x1f%an%x1f%aI']);
   if (log.ok && log.out) {
     const [hash, subject, author, isoDate] = log.out.split('\x1f');
-    result.lastCommit = { hash, subject, author, date: isoDate };
-  } else if (!log.ok) {
-    result.errors.push(`log: ${log.error}`);
-  }
+    result.lastCommit = { hash, subject, author, date: isoDate, dateLabel: ageLabel(isoDate, now) };
+  } else if (!log.ok) { result.errors.push(`log: ${log.error}`); }
 
-  // Ahead/behind only when an upstream is configured.
   const upstreamRef = tryGit(['rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{upstream}']);
   if (upstreamRef.ok && upstreamRef.out) {
-    result.upstream.exists = true;
-    result.upstream.name = upstreamRef.out;
+    result.upstream.exists = true; result.upstream.name = upstreamRef.out;
     const counts = tryGit(['rev-list', '--count', '--left-right', '@{upstream}...HEAD']);
     if (counts.ok && counts.out) {
       const m = counts.out.split(/\s+/);
@@ -98,23 +135,19 @@ function getRepoHealth() {
     }
   }
 
-  // "Safe to proceed" heuristic — advisory only, never an action.
-  if (result.clean === true) {
-    result.safeToProceed = true;
-    result.safeReason = 'working tree clean';
-  } else if (result.clean === false) {
+  if (result.clean === true) { result.safeToProceed = true; result.safeReason = 'working tree clean'; }
+  else if (result.clean === false) {
     result.safeToProceed = false;
     const parts = [];
     if (result.counts.staged) parts.push(`${result.counts.staged} staged`);
     if (result.counts.unstaged) parts.push(`${result.counts.unstaged} unstaged`);
     if (result.counts.untracked) parts.push(`${result.counts.untracked} untracked`);
     result.safeReason = `uncommitted changes present (${parts.join(', ')}) — review before destructive actions`;
-  } else {
-    result.safeToProceed = null;
-    result.safeReason = 'git status unavailable';
-  }
+  } else { result.safeReason = 'git status unavailable'; }
 
+  result.audit = readAudit(now, result.lastCommit && result.lastCommit.date, result.clean);
+  result.validationCommands = result.audit.everRun ? result.audit.commands : neverRunCommands();
   return result;
 }
 
-module.exports = { getRepoHealth, READONLY_SUBCOMMANDS };
+module.exports = { getRepoHealth, READONLY_SUBCOMMANDS, AUDIT_STATUS_FILE };
