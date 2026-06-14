@@ -23,14 +23,15 @@
     <button data-tab="learning">Learning</button>
     <button data-tab="sources">Sources</button>
     <button data-tab="health">Repo Health</button>
+    <span class="nav-spacer"></span>
+    <button id="refreshBtn" class="global-refresh" title="Re-read all governance and repo-health data">Refresh</button>
+    <span class="nav-meta" id="loadMeta" aria-live="polite"></span>
   </nav>
   <div class="controls">
     <input id="filterText" type="text" placeholder="Filter (name, action, decision…)" />
     <select id="filterStatus">
       <option value="">All statuses</option>
     </select>
-    <button id="refreshBtn" title="Re-reads the governance files (pull architecture)">Refresh</button>
-    <span class="meta" id="loadMeta"></span>
   </div>
   <main id="main"><p style="color:var(--type-muted)">Loading OS state…</p></main>
   <aside id="sidepanel" aria-hidden="true">

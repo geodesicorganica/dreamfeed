@@ -259,99 +259,153 @@ function renderBoard() {
 // ===========================================================================
 // Topology Map (B1) — real SVG node/edge graph + click-through detail.
 // ===========================================================================
-const VBW = 760, VBH = 560;
-function graphLayout() {
-  const t = state.topology;
-  const agents = t.nodes.filter(n => n.nodeType === 'agent');
-  const skills = t.nodes.filter(n => n.nodeType === 'skill');
-  const pos = {};
-  agents.forEach((n, i) => { pos[n.id.value] = { x: 150, y: 70 + i * ((VBH - 140) / Math.max(1, agents.length - 1)), node: n }; });
-  skills.forEach((n, i) => { pos[n.id.value] = { x: 600, y: 45 + i * ((VBH - 90) / Math.max(1, skills.length - 1)), node: n }; });
-  return pos;
+const VBW = 1000;
+// Build the COMPLETE graph node set (gate 5b round-2). The parser's built
+// agent/skill nodes PLUS every edge ENDPOINT that has no definition file:
+//   - declared-but-unbuilt skills/agents (referenced via owns/depends-on/etc.
+//     but no SKILL.md/AGENT.md exists yet) → "planned" nodes
+//   - output/input artifacts (produces/reads targets) → "artifact" nodes
+// These endpoints already exist in the Canonical edge data; drawing them as
+// nodes is presentation only — Gate C node/edge/provenance semantics are
+// unchanged. Without them the old graph hid 38 endpoints and 53 edges and read
+// as "incomplete".
+function isFileRef(s) { return /[\\/]/.test(s) || /\.[a-z0-9]+$/i.test(s); }
+function baseName(s) { const p = String(s).split(/[\\/]/); return p[p.length - 1]; }
+function endpointKind(type, to) {
+  if (type === 'produces' || type === 'reads') return 'artifact';
+  if (type === 'owns' || type === 'depends-on') return 'planned-skill';
+  if (type === 'reports-to' || type === 'dispatches-to' || type === 'consumes-from') return 'planned-agent';
+  return isFileRef(to) ? 'artifact' : 'planned-skill';
 }
-function dedupeNodeEdges(pos) {
+function graphNodes() {
+  const t = state.topology;
+  const ids = new Set(t.nodes.map(n => n.id.value));
+  const nodes = [];
+  for (const n of t.nodes) nodes.push({ key: n.id.value, kind: n.nodeType, label: n.id.value, full: n.id.value, ref: n });
+  const seen = new Set();
+  for (const e of t.edges) {
+    const to = e.to && !e.to.nys ? e.to.value : null;
+    if (!to || ids.has(to) || seen.has(to)) continue;
+    seen.add(to);
+    const kind = endpointKind(e.type && !e.type.nys ? e.type.value : '', to);
+    nodes.push({ key: to, kind, label: kind === 'artifact' ? baseName(to) : to, full: to, ref: null });
+  }
+  return nodes;
+}
+function graphLayout() {
+  const nodes = graphNodes();
+  const colOf = n => (n.kind === 'agent' || n.kind === 'planned-agent') ? 0 : (n.kind === 'skill' || n.kind === 'planned-skill') ? 1 : 2;
+  const cols = [[], [], []];
+  for (const n of nodes) cols[colOf(n)].push(n);
+  const pos = {};
+  const top = 38, gap = 30;
+  cols[0].forEach((n, i) => { pos[n.key] = { x: 95, y: top + i * gap, n }; });
+  cols[1].forEach((n, i) => { pos[n.key] = { x: 330, y: top + i * gap, n }; });
+  const arts = cols[2], half = Math.ceil(arts.length / 2) || 1;
+  arts.forEach((n, i) => { const lane = i < half ? 0 : 1; const row = i < half ? i : i - half; pos[n.key] = { x: 600 + lane * 210, y: top + row * gap, n }; });
+  const maxRows = Math.max(cols[0].length, cols[1].length, half);
+  const vbh = Math.max(360, top + maxRows * gap + 16);
+  return { pos, vbh, nodes, counts: { agents: cols[0].length, skills: cols[1].length, artifacts: cols[2].length } };
+}
+function allGraphEdges(pos) {
   const t = state.topology, seen = new Set(), out = [];
   for (const e of t.edges) {
     if (!e.from || e.from.nys || !e.to || e.to.nys || !e.type || e.type.nys) continue;
     const from = e.from.value, to = e.to.value, type = e.type.value;
-    if (!pos[from] || !pos[to]) continue; // only node-to-node edges (file edges shown in detail)
+    if (!pos[from] || !pos[to]) continue;
     const key = `${from}|${to}|${type}`;
     if (seen.has(key)) continue; seen.add(key);
-    out.push({ from, to, type, tier: e.tier && !e.tier.nys ? e.tier.value : null, ev: e.source_evidence && !e.source_evidence.nys ? e.source_evidence.value : null });
+    out.push({ from, to, type, tier: e.tier && !e.tier.nys ? e.tier.value : null });
   }
   return out;
 }
 function edgeClass(tier) { return tier === 'Canonical' ? 'edge-canon' : tier === 'Derived' ? 'edge-deriv' : 'edge-nys'; }
+function nodeSvgFor(meta, p, sel) {
+  const selCls = sel === meta.key ? 'sel' : '';
+  const label = esc(meta.label);
+  if (meta.kind === 'agent' || meta.kind === 'planned-agent') {
+    const planned = meta.kind === 'planned-agent';
+    return `<g class="gnode gk-${meta.kind} ${selCls}" data-node="${esc(meta.key)}"><circle cx="${p.x}" cy="${p.y}" r="16" fill="${planned ? '#241b3d' : '#1B3B8A'}" stroke="${planned ? '#9B7BF0' : '#2D6FE8'}" stroke-width="2"${planned ? ' stroke-dasharray="4 3"' : ''}></circle><text x="${p.x - 24}" y="${p.y + 4}" text-anchor="end">${label}</text></g>`;
+  }
+  if (meta.kind === 'skill' || meta.kind === 'planned-skill') {
+    const planned = meta.kind === 'planned-skill';
+    return `<g class="gnode gk-${meta.kind} ${selCls}" data-node="${esc(meta.key)}"><rect x="${p.x - 12}" y="${p.y - 11}" width="24" height="22" rx="5" fill="${planned ? '#241b3d' : '#16324f'}" stroke="${planned ? '#9B7BF0' : '#18C08A'}" stroke-width="2"${planned ? ' stroke-dasharray="4 3"' : ''}></rect><text x="${p.x + 18}" y="${p.y + 4}">${label}</text></g>`;
+  }
+  return `<g class="gnode gk-artifact ${selCls}" data-node="${esc(meta.key)}"><rect x="${p.x - 6}" y="${p.y - 6}" width="12" height="12" transform="rotate(45 ${p.x} ${p.y})" fill="#1a2240" stroke="#5C6F92" stroke-width="1.5"></rect><text x="${p.x + 12}" y="${p.y + 3.5}" class="art-label">${label}</text></g>`;
+}
 function renderTopology() {
   const t = state.topology;
-  const pos = graphLayout();
-  const edges = dedupeNodeEdges(pos);
+  const { pos, vbh, nodes, counts } = graphLayout();
+  const edges = allGraphEdges(pos);
   const sel = view.graphSel;
   const edgeSvg = edges.map(e => {
     const a = pos[e.from], b = pos[e.to];
     const touches = sel && (e.from === sel || e.to === sel);
     const cls = `gedge ${edgeClass(e.tier)} ${sel ? (touches ? 'hot' : 'dim') : ''}`;
-    const mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2 - 40;
+    const mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2 - 26;
     return `<path class="${cls}" d="M ${a.x} ${a.y} Q ${mx} ${my} ${b.x} ${b.y}"></path>`;
   }).join('');
-  const nodeSvg = t.nodes.map(n => {
-    const p = pos[n.id.value]; if (!p) return '';
-    const isAgent = n.nodeType === 'agent';
-    const selCls = sel === n.id.value ? 'sel' : '';
-    const planned = n.status && !n.status.nys && n.status.value === 'planned';
-    const fill = isAgent ? (planned ? '#2a2140' : '#1B3B8A') : (planned ? '#2a2140' : '#16324f');
-    const stroke = isAgent ? '#2D6FE8' : '#18C08A';
-    const label = esc(n.id.value);
-    if (isAgent) {
-      return `<g class="gnode ${selCls}" data-node="${esc(n.id.value)}"><circle cx="${p.x}" cy="${p.y}" r="22" fill="${fill}" stroke="${stroke}" stroke-width="2"></circle><text x="${p.x - 30}" y="${p.y + 4}" text-anchor="end">${label}</text></g>`;
-    }
-    return `<g class="gnode ${selCls}" data-node="${esc(n.id.value)}"><rect x="${p.x - 14}" y="${p.y - 13}" width="28" height="26" rx="6" fill="${fill}" stroke="${stroke}" stroke-width="2"></rect><text x="${p.x + 24}" y="${p.y + 4}">${label}</text></g>`;
-  }).join('');
+  const nodeSvg = Object.values(pos).map(p => nodeSvgFor(p.n, p, sel)).join('');
+
+  const planned = nodes.filter(n => n.kind === 'planned-skill' || n.kind === 'planned-agent');
+  const artifacts = nodes.filter(n => n.kind === 'artifact');
+  const builtNodes = nodes.filter(n => n.kind === 'agent' || n.kind === 'skill');
   const legend = `<div class="graph-legend">
-    <span><i class="lg-line" style="border-color:var(--green)"></i> Canonical</span>
-    <span><i class="lg-line" style="border-color:var(--vortex-soft)"></i> Derived</span>
-    <span><i class="lg-line" style="border-color:var(--amber)"></i> not-yet-structured</span>
-    <span>● agent &nbsp; ▭ skill &nbsp; (violet = planned)</span>
-    <span>${t.nodes.length} nodes · ${edges.length} graph edges (${t.tally.Canonical} Canonical / ${t.tally.Derived} Derived / ${t.tally.nys} n-y-s total)</span></div>`;
+    <span>● agent</span><span>▭ skill</span><span style="color:var(--violet)">⬚ planned (no def file)</span><span>◇ artifact (output/input)</span>
+    <span><i class="lg-line" style="border-color:var(--green)"></i> Canonical edge</span>
+    <span>${counts.agents} agent + ${counts.skills} skill + ${counts.artifacts} artifact = ${nodes.length} nodes · ${edges.length}/${t.edges.length} edges drawn</span>
+    <span class="odim">click a node to highlight its edges</span></div>`;
   const detail = renderGraphDetail(sel);
 
-  // ---- Restored structured lists below the graph (gate 5b r2 B1) + accuracy
-  // panel (B2). The graph is an additional visualization layer, not a
-  // replacement: the lists below carry ALL nodes and ALL edges, including the
-  // file-target edges the node graph cannot draw.
+  // ---- Accuracy panel + structured lists below the graph. The graph now draws
+  // every endpoint and every edge; the lists remain the authoritative tables.
   const ids = new Set(t.nodes.map(n => n.id.value));
-  let fileEdges = 0;
-  for (const e of t.edges) { const to = e.to && !e.to.nys ? e.to.value : null; if (!(to && ids.has(to))) fileEdges++; }
-  const accuracy = `<div class="banner">Topology coverage (verified against source): <b>${t.nodes.length} nodes</b> (${t.nodes.filter(n => n.nodeType === 'agent').length} agents / ${t.nodes.filter(n => n.nodeType === 'skill').length} skills) · <b>${t.edges.length} edges</b> (${t.tally.Canonical} Canonical / ${t.tally.Derived} Derived / ${t.tally.nys} not-yet-structured) · <b>${edges.length} drawn in graph</b> (node→node) · <b>${fileEdges} file-target edges</b> listed below but <b>not drawn</b> in the graph (their target is a file path, not an agent/skill node). 0 prose-only (Derived) edges: this build reads Phase 0b definition-file frontmatter only (Gate C Amendment 1) and does not scan prose — any relationship that exists only in prose is not represented here. Parse errors: ${state.parseErrors.filter(e => /AGENT\.md|SKILL\.md/.test(e.path || '')).length} on definition files. All source files are clickable.</div>`;
+  const defErrors = state.parseErrors.filter(e => /AGENT\.md|SKILL\.md/.test(e.path || '')).length;
+  const accuracy = `<div class="banner"><b>Topology coverage — verified against source frontmatter:</b>
+    <b>12 built definition nodes</b> (5 agents + 7 skills) · <b>${planned.length} declared-but-unbuilt</b> (referenced in frontmatter, no definition file yet)${planned.length ? ': ' + planned.map(n => esc(n.label)).join(', ') : ''} · <b>${artifacts.length} output/input artifacts</b> (produces/reads targets) · <b>${t.edges.length} edges</b>, all <b>${t.tally.Canonical} Canonical</b> (0 Derived, 0 not-yet-structured), <b>${defErrors} parse errors</b>.
+    Every endpoint is now drawn as a node and every edge is rendered (${edges.length} after de-duplicating the two-way <code>owns</code> edges). Prose-only relationships are NOT scanned (this build reads Phase 0b frontmatter only — Gate C Amendment 1 — which is why Derived = 0). Six-object semantics unchanged; this is the topology graph layer only.</div>`;
 
-  const nodeRows = t.nodes.map(n => `<tr>
-    <td>${esc(n.id.value)}</td><td>${esc(n.nodeType)}</td>
-    <td>${esc(n.name.nys ? '—' : n.name.value)}</td>
-    <td>${n.nodeType === 'agent' ? esc(n.layer.nys ? '—' : n.layer.value) : esc(n.owning_agent.nys ? '—' : n.owning_agent.value)}</td>
-    <td>${esc(n.status.nys ? 'n/y/s' : n.status.value)}</td>
-    <td>${n.source_evidence && !n.source_evidence.nys ? `<span class="srclink" data-file="${esc(n.source_evidence.value.file)}">${esc(n.source_evidence.value.file)}</span>` : '—'}</td></tr>`).join('');
-  const nodeList = group('topo-nodes', 'Node list', `<table class="grid"><tr><th>id</th><th>type</th><th>name</th><th>layer / owner</th><th>status</th><th>source</th></tr>${nodeRows}</table>`, t.nodes.length);
+  // Declared-but-unbuilt callout — directly answers "what's missing".
+  const plannedRows = planned.map(n => {
+    const refs = edgesTo(n.key).map(e => `${esc(e.from.value)} <span class="odim">${esc(e.type.nys ? '' : e.type.value)}</span>`).join(', ');
+    return `<tr><td>${esc(n.label)}</td><td>${esc(n.kind === 'planned-agent' ? 'agent' : 'skill')}</td><td>${refs || '—'}</td></tr>`;
+  }).join('');
+  const plannedList = planned.length
+    ? group('topo-planned', 'Declared but unbuilt (no definition file yet)', `<table class="grid"><tr><th>id</th><th>kind</th><th>declared by</th></tr>${plannedRows}</table>`, planned.length)
+    : '';
+
+  const nodeRows = nodes.map(n => {
+    const ref = n.ref;
+    const status = ref ? (ref.status.nys ? 'n/y/s' : ref.status.value) : (n.kind === 'artifact' ? 'artifact' : 'planned (no def file)');
+    const owner = ref ? (ref.nodeType === 'agent' ? (ref.layer.nys ? '—' : ref.layer.value) : (ref.owning_agent.nys ? '—' : ref.owning_agent.value)) : '—';
+    const src = ref && ref.source_evidence && !ref.source_evidence.nys
+      ? `<span class="srclink" data-file="${esc(ref.source_evidence.value.file)}">${esc(ref.source_evidence.value.file)}</span>`
+      : (n.kind === 'artifact' && isFileRef(n.full) ? `<span class="srclink" data-file="${esc(n.full)}">${esc(n.full)}</span>` : '—');
+    return `<tr><td>${esc(n.label)}</td><td>${esc(n.kind)}</td><td>${esc(owner)}</td><td>${esc(status)}</td><td>${src}</td></tr>`;
+  }).join('');
+  const nodeList = group('topo-nodes', 'Node list — every node in the graph', `<table class="grid"><tr><th>id</th><th>kind</th><th>layer / owner</th><th>status</th><th>source</th></tr>${nodeRows}</table>`, nodes.length);
 
   const edgeRows = t.edges.map(e => {
     const from = e.from && !e.from.nys ? e.from.value : '—';
     const to = e.to && !e.to.nys ? e.to.value : 'not-yet-structured';
     const type = e.type && !e.type.nys ? e.type.value : '—';
     const tier = e.tier && !e.tier.nys ? e.tier.value : 'n-y-s';
-    const targetKind = (e.to && !e.to.nys && ids.has(e.to.value)) ? 'node' : (e.to && !e.to.nys ? 'file' : '—');
+    const targetKind = (e.to && !e.to.nys && ids.has(e.to.value)) ? 'node' : (e.to && !e.to.nys ? endpointKind(type, e.to.value) : '—');
+    const tkPill = targetKind === 'node' ? 'blue' : targetKind === 'artifact' ? 'grey' : 'violet';
     const provCls = tier === 'Canonical' ? 'Canonical' : tier === 'Derived' ? 'Derived' : 'Candidate';
     const ev = e.source_evidence && !e.source_evidence.nys ? e.source_evidence.value.file : null;
-    return `<tr><td>${esc(from)}</td><td><b>${esc(type)}</b></td><td>${esc(to)}</td><td><span class="pill pill-${targetKind === 'node' ? 'blue' : targetKind === 'file' ? 'grey' : 'amber'}">${esc(targetKind)}</span></td><td><span class="prov prov-${provCls}">${esc(tier)}</span></td><td>${ev ? `<span class="srclink" data-file="${esc(ev)}">src</span>` : '—'}</td></tr>`;
+    return `<tr><td>${esc(from)}</td><td><b>${esc(type)}</b></td><td>${esc(to)}</td><td><span class="pill pill-${tkPill}">${esc(targetKind)}</span></td><td><span class="prov prov-${provCls}">${esc(tier)}</span></td><td>${ev ? `<span class="srclink" data-file="${esc(ev)}">src</span>` : '—'}</td></tr>`;
   }).join('');
-  const edgeList = group('topo-edges', 'Edge list — every edge (incl. file-target edges not drawn in the graph)', `<table class="grid"><tr><th>from</th><th>type</th><th>to</th><th>target</th><th>provenance</th><th>source</th></tr>${edgeRows}</table>`, t.edges.length);
+  const edgeList = group('topo-edges', 'Edge list — every edge', `<table class="grid"><tr><th>from</th><th>type</th><th>to</th><th>target</th><th>provenance</th><th>source</th></tr>${edgeRows}</table>`, t.edges.length);
 
   const invRows = t.repoInventory.map(r => `<tr><td><span class="srclink" data-file="${esc(r.path.value)}">${esc(r.path.value)}</span></td><td>${esc(r.kind.value)}</td><td>${esc(String(r.hasDefinitionFrontmatter.value))}</td></tr>`).join('');
   const repoInv = group('topo-inv', 'Repo inventory — definition files', `<table class="grid"><tr><th>path</th><th>kind</th><th>has Phase 0b frontmatter</th></tr>${invRows}</table>`, t.repoInventory.length);
 
-  return `<div class="banner">Topology Map — interactive node/edge graph <b>plus</b> the full structured node, edge, and repo-inventory lists below. The graph is an additional visualization layer, not a replacement; the lists carry every node and every edge (including file-target edges the graph cannot draw). Click an agent (●) or skill (▭) — or any list row's source — to inspect detail. Edge colour = provenance (Gate C Amendment 1: edges from Phase 0b frontmatter are Canonical).</div>
+  return `<div class="banner">Topology Map — interactive node/edge graph <b>plus</b> the full node, edge, and repo-inventory lists below. The graph draws <b>every</b> endpoint (agents ●, skills ▭, planned/unbuilt ⬚, artifacts ◇) and <b>every</b> edge. Click any node to highlight its edges and inspect detail; click a source link to open the file. Edge colour = provenance (Gate C Amendment 1: frontmatter edges are Canonical).</div>
     ${legend}
-    <div class="graph-wrap"><div class="graph-canvas"><svg viewBox="0 0 ${VBW} ${VBH}" preserveAspectRatio="xMidYMid meet">${edgeSvg}${nodeSvg}</svg></div>
+    <div class="graph-wrap"><div class="graph-canvas"><svg width="${VBW}" height="${vbh}" viewBox="0 0 ${VBW} ${vbh}">${edgeSvg}${nodeSvg}</svg></div>
     <div class="graph-detail" id="graphDetail">${detail}</div></div>
-    ${accuracy}${nodeList}${edgeList}${repoInv}`;
+    ${accuracy}${plannedList}${nodeList}${edgeList}${repoInv}`;
 }
 function nodeById(id) { return state.topology.nodes.find(n => n.id.value === id); }
 function edgesFrom(id) { return state.topology.edges.filter(e => e.from && !e.from.nys && e.from.value === id); }
@@ -362,9 +416,21 @@ function edgeLi(e, dir) {
   const evFile = e.source_evidence && !e.source_evidence.nys ? e.source_evidence.value.file : null;
   return `<li><b>${esc(e.type.nys ? '—' : e.type.value)}</b> ${dir === 'out' ? '→' : '←'} ${esc(other)} <span class="prov prov-${tier === 'nys' ? 'Candidate' : tier}">${tier}</span>${evFile ? ` <span class="srclink" data-file="${esc(evFile)}">src</span>` : ''}</li>`;
 }
+function renderDerivedDetail(id) {
+  const inc = edgesTo(id);
+  const types = new Set(inc.map(e => e.type && !e.type.nys ? e.type.value : ''));
+  const isArtifact = types.has('produces') || types.has('reads') || (!types.has('owns') && !types.has('depends-on') && isFileRef(id));
+  const kindLabel = isArtifact ? 'artifact (output / input)' : 'planned — declared, no definition file yet';
+  let h = `<h3>${esc(baseName(id))} <span class="pill pill-${isArtifact ? 'grey' : 'violet'}">${isArtifact ? 'artifact' : 'planned'}</span></h3>`;
+  h += `<div class="card-sub">${esc(id)}</div>`;
+  h += `<div class="src">${kindLabel}.${isArtifact && isFileRef(id) ? ` open: <span class="srclink" data-file="${esc(id)}">${esc(id)}</span>` : ''}</div>`;
+  if (!isArtifact) h += `<p style="color:var(--type-muted);font-size:11px;margin:8px 0 0">This skill/agent is declared in another node's frontmatter but has no AGENT.md / SKILL.md yet — it is part of the topology as a planned relationship.</p>`;
+  if (inc.length) h += `<div class="detail-sec">referenced by (${inc.length})</div><ul class="detail-list">${inc.map(e => edgeLi(e, 'in')).join('')}</ul>`;
+  return h;
+}
 function renderGraphDetail(id) {
   if (!id) return `<h3>Inspect</h3><p style="color:var(--type-muted);font-size:12px">Click a node to see its overview, relationships, and files. Click any <span class="srclink">src</span> or file link to open it in the side viewer.</p>`;
-  const n = nodeById(id); if (!n) return '<p>node not found</p>';
+  const n = nodeById(id); if (!n) return renderDerivedDetail(id);
   const out = edgesFrom(id), inc = edgesTo(id);
   const isAgent = n.nodeType === 'agent';
   const owns = out.filter(e => !e.type.nys && e.type.value === 'owns');
@@ -499,7 +565,7 @@ function statusOptions() {
 }
 function render() {
   if (!state) return;
-  document.querySelectorAll('nav button').forEach(b => b.classList.toggle('active', b.dataset.tab === view.tab));
+  document.querySelectorAll('nav button[data-tab]').forEach(b => b.classList.toggle('active', b.dataset.tab === view.tab));
   const sel = $('#filterStatus'), cur = view.filterStatus;
   sel.innerHTML = '<option value="">All statuses</option>' + statusOptions().map(s => `<option value="${esc(s)}"${s === cur ? ' selected' : ''}>${esc(s)}</option>`).join('');
   $('#loadMeta').textContent = `as of ${state.asOfDate} · loaded ${new Date(state.generatedAt).toLocaleTimeString()} · read-only`;
@@ -518,18 +584,38 @@ function wire() {
 function goTab(tab) { view.tab = tab; view.filterStatus = ''; view.graphSel = null; render(); }
 
 async function load() {
-  $('#loadMeta').textContent = 'loading…';
-  state = await (await fetch('/api/state', { cache: 'no-store' })).json();
-  try { repoHealth = await (await fetch('/api/repo-health', { cache: 'no-store' })).json(); } catch (err) { repoHealth = { fatal: String(err) }; }
-  render();
+  const refreshBtn = $('#refreshBtn');
+  if (refreshBtn) {
+    refreshBtn.disabled = true;
+    refreshBtn.setAttribute('aria-busy', 'true');
+    refreshBtn.textContent = 'Refreshing...';
+  }
+  $('#loadMeta').textContent = 'refreshing dashboard...';
+  try {
+    state = await (await fetch('/api/state', { cache: 'no-store' })).json();
+    try { repoHealth = await (await fetch('/api/repo-health', { cache: 'no-store' })).json(); } catch (err) { repoHealth = { fatal: String(err) }; }
+    render();
+  } finally {
+    if (refreshBtn) {
+      refreshBtn.disabled = false;
+      refreshBtn.setAttribute('aria-busy', 'false');
+      refreshBtn.textContent = 'Refresh';
+    }
+  }
 }
 
 $('#tabs').addEventListener('click', (e) => { const b = e.target.closest('button[data-tab]'); if (!b) return; view.tab = b.dataset.tab; view.filterStatus = ''; render(); });
 $('#filterText').addEventListener('input', (e) => { view.filterText = e.target.value; render(); });
 $('#filterStatus').addEventListener('change', (e) => { view.filterStatus = e.target.value; render(); });
-$('#refreshBtn').addEventListener('click', load);
+$('#refreshBtn').addEventListener('click', () => load().catch(err => {
+  $('#loadMeta').textContent = 'refresh failed';
+  $('#main').innerHTML = `<div class="card error-card"><div class="card-title">refresh failed</div><pre>${esc(String(err))}</pre></div>`;
+}));
 $('#logo').addEventListener('click', () => goTab('overview'));
 $('#spClose').addEventListener('click', closePanel);
 document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closePanel(); });
 
-load().catch(err => { $('#main').innerHTML = `<div class="card error-card"><div class="card-title">load failed</div><pre>${esc(String(err))}</pre></div>`; });
+load().catch(err => {
+  $('#loadMeta').textContent = 'load failed';
+  $('#main').innerHTML = `<div class="card error-card"><div class="card-title">load failed</div><pre>${esc(String(err))}</pre></div>`;
+});
