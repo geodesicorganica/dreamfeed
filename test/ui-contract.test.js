@@ -5,18 +5,95 @@ const fs = require('fs');
 const path = require('path');
 
 const ROOT = path.join(__dirname, '..');
+const read = (...parts) => fs.readFileSync(path.join(ROOT, ...parts), 'utf8');
+function lensRegistry() {
+  const app = read('public', 'app.js');
+  const match = app.match(/const LENS_REGISTRY = Object\.freeze\((\{[\s\S]*?\n\})\);/);
+  assert.ok(match, 'lens registry object is declared');
+  return Function(`"use strict"; return (${match[1]});`)();
+}
 
-test('global refresh lives in the sticky nav and calls the full dashboard loader', () => {
-  const html = fs.readFileSync(path.join(ROOT, 'public', 'index.html'), 'utf8');
-  const app = fs.readFileSync(path.join(ROOT, 'public', 'app.js'), 'utf8');
-  const nav = html.match(/<nav id="tabs">([\s\S]*?)<\/nav>/);
-  const controls = html.match(/<div class="controls">([\s\S]*?)<\/div>/);
+test('Dreamfeed shell exposes five persistent operating regions', () => {
+  const html = read('public', 'index.html');
+  for (const id of ['sidebar', 'commandBar', 'main', 'inspector', 'bottomPanel']) {
+    assert.match(html, new RegExp(`id="${id}"`), `missing persistent region: ${id}`);
+  }
+  assert.match(html, /id="refreshBtn"/, 'command bar keeps source refresh available');
+  assert.match(html, /id="densityBtn"/, 'command bar exposes in-memory density control');
+  assert.match(html, /id="inspectorToggle"/, 'command bar can control inspector visibility');
+  assert.match(html, /id="bottomToggle"/, 'command bar can control validation panel visibility');
+});
 
-  assert.ok(nav, 'nav exists');
-  assert.ok(controls, 'controls row exists');
-  assert.match(nav[1], /id="refreshBtn"/, 'refresh button belongs to global nav');
-  assert.doesNotMatch(controls[1], /id="refreshBtn"/, 'refresh button must not be a local filter control');
-  assert.match(app, /fetch\('\/api\/state', \{ cache: 'no-store' \}\)/, 'refresh fetches full OS state');
-  assert.match(app, /fetch\('\/api\/repo-health', \{ cache: 'no-store' \}\)/, 'refresh fetches repo health');
-  assert.match(app, /refreshBtn'\)\.addEventListener\('click', \(\) => load\(\)/, 'refresh click runs the global loader');
+test('explicit lens registry maps every retained Command Center tab', () => {
+  const html = read('public', 'index.html');
+  const app = read('public', 'app.js');
+  const registry = lensRegistry();
+  assert.deepEqual(Object.keys(registry), ['Dashboard', 'Board', 'Table', 'Document', 'IDE', 'Topology']);
+  assert.deepEqual(registry.Dashboard, { tabs: ['overview', 'learning'], defaultTab: 'overview' });
+  assert.deepEqual(registry.Board, { tabs: ['board', 'queue', 'milestones'], defaultTab: 'board' });
+  assert.deepEqual(registry.Table, { tabs: ['sources', 'health'], defaultTab: 'sources' });
+  assert.deepEqual(registry.Document, { tabs: ['roadmap', 'review'], defaultTab: 'review' });
+  assert.deepEqual(registry.IDE, { tabs: ['review'], defaultTab: 'review', inspectorMode: 'evidence' });
+  assert.deepEqual(registry.Topology, { tabs: ['topology'], defaultTab: 'topology' });
+  for (const tab of ['overview', 'board', 'queue', 'topology', 'roadmap', 'milestones', 'review', 'learning', 'sources', 'health']) {
+    assert.match(html, new RegExp(`data-tab="${tab}"`), `retained module tab is missing: ${tab}`);
+  }
+  assert.match(app, /function goLens\(lens\)/, 'lens control resolves to a retained default tab');
+});
+
+test('selection is derived over existing state and routes evidence into the shared inspector', () => {
+  const html = read('public', 'index.html');
+  const app = read('public', 'app.js');
+  assert.match(app, /function buildObjectRegistry\(\)/, 'derived UI registry exists');
+  assert.match(app, /function selectObject\(id/, 'cards, graph nodes, and rows share selection state');
+  assert.match(app, /function renderInspector\(\)/, 'shared inspector renders selected object');
+  assert.match(app, /function openEvidence\(path/, 'source evidence is opened through the inspector');
+  assert.ok(app.includes('const sourceId = `source:${path}`;'), 'existing source registry identity is reused for evidence paths');
+  assert.ok(app.includes('const id = `file:${path}`;'), 'file identity remains only as a fallback path');
+  assert.match(app, /fieldValue\(o\.decision_maker, fieldValue\(o\.target_agent\)\)/, 'approval owner fallback unwraps decision_maker before target_agent');
+  assert.match(app, /let evidenceRequestId = 0;/, 'evidence fetches carry a request guard');
+  assert.match(app, /requestId !== evidenceRequestId \|\| view\.evidence\?\.path !== path/, 'stale evidence responses cannot overwrite current inspector state');
+  assert.doesNotMatch(html, /id="sidepanel"/, 'legacy overlay source viewer is removed');
+  assert.doesNotMatch(app, /localStorage|sessionStorage|indexedDB|document\.cookie|history\.(pushState|replaceState)|location\.(hash|search)/, 'V1 cockpit state is not persisted across reload surfaces');
+  assert.match(app, /const view = \{\s*tab: 'overview'/, 'reload starts from the default overview state');
+});
+
+test('topology graph normalizes node kinds before layout and SVG classification', () => {
+  const app = read('public', 'app.js');
+  assert.match(app, /kind: fieldValue\(n\.nodeType, 'artifact'\)/, 'source topology node kind is normalized to a string');
+  assert.match(app, /const kind = endpointKind\(type, key, direction\)/, 'synthetic endpoint kind remains a string');
+  assert.doesNotMatch(app, /kind: n\.nodeType/, 'wrapped nodeType fields are not stored as graph node kind');
+  assert.match(app, /n\.kind === 'agent'/, 'graph layout classifies normalized kind strings');
+  assert.match(app, /meta\.kind\.includes\('planned'\)/, 'graph SVG planned-node check operates on normalized kind strings');
+  assert.match(app, /n\.kind === 'artifact'/, 'artifact filtering operates on normalized kind strings');
+});
+
+test('topology graph registers synthetic endpoints before exposing selectable rows', () => {
+  const app = read('public', 'app.js');
+  assert.match(app, /function registerSyntheticTopologyEndpoint\(endpoint\)/, 'synthetic topology endpoint registry exists');
+  assert.match(app, /registerSyntheticTopologyEndpoint\(node\);\s*nodes\.push\(node\);/, 'synthetic endpoint is registered before it is rendered/selectable');
+  assert.match(app, /addSynthetic\(from, type, 'from'\);/, 'missing from endpoints are included in graph nodes');
+  assert.match(app, /addSynthetic\(to, type, 'to'\);/, 'missing to endpoints are included in graph nodes');
+  assert.match(app, /graphEdges\(positions\)/, 'edge rendering still uses full topology edge inventory');
+  assert.match(app, /state\.topology\.edges\.forEach/, 'edge drawing iterates source topology edges instead of node-only inventory');
+});
+
+test('Dreamfeed tokens, Verified Node, and self-hosted IBM Plex routes are local-only', () => {
+  const html = read('public', 'index.html');
+  const server = read('src', 'server.js');
+  const fonts = read('public', 'dreamfeed', 'fonts.css');
+  assert.match(html, /\/dreamfeed\/assets\/logo-lockup\.svg/, 'uses the canonical Verified Node lockup');
+  assert.match(html, /\/dreamfeed\/tokens\/colors\.css/, 'uses canonical token CSS route');
+  assert.match(html, /\/dreamfeed\/tokens\/typography\.css/, 'uses canonical typography token route');
+  assert.match(server, /\/dreamfeed\/assets\/logo-lockup\.svg/, 'logo route is explicit');
+  assert.match(server, /\/dreamfeed\/tokens\/colors\.css/, 'token route is explicit');
+  assert.match(server, /IBMPlexSans-Regular\.woff2/, 'self-hosted font route is explicit');
+  assert.match(fonts, /font-family: "IBM Plex Sans"/, 'IBM Plex Sans is self-hosted');
+  assert.match(fonts, /font-family: "IBM Plex Mono"/, 'IBM Plex Mono is self-hosted');
+  const fontUrls = [...fonts.matchAll(/url\("([^"]+)"\)/g)].map((match) => match[1]);
+  assert.ok(fontUrls.length >= 8, 'font CSS declares expected IBM Plex font files');
+  assert.ok(fontUrls.every((url) => url.startsWith('/dreamfeed/fonts/')), 'all font URLs use the local Dreamfeed font route');
+  assert.ok(fontUrls.some((url) => url.includes('IBMPlexSans-')), 'IBM Plex Sans file URLs are explicit');
+  assert.ok(fontUrls.some((url) => url.includes('IBMPlexMono-')), 'IBM Plex Mono file URLs are explicit');
+  assert.doesNotMatch(fonts, /https?:\/\//, 'font CSS has no external runtime dependency');
 });

@@ -3,44 +3,91 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Dreamfeed — Stakeport OS Command Center (Operational Core)</title>
+  <meta name="color-scheme" content="dark" />
+  <title>Dreamfeed — Stakeport OS Command Center</title>
+  <link rel="stylesheet" href="/dreamfeed/fonts.css" />
+  <link rel="stylesheet" href="/dreamfeed/tokens/colors.css" />
+  <link rel="stylesheet" href="/dreamfeed/tokens/typography.css" />
   <link rel="stylesheet" href="/styles.css" />
 </head>
 <body>
-  <header>
-    <h1 id="logo" title="Back to Overview"><span class="accent">Dream</span>feed</h1>
-    <span class="subtitle">Stakeport OS Command Center — Operational Core (Brief A) · read-only</span>
-    <span class="host-note" id="hostNote">localhost-only · pull architecture · zero write-back</span>
-  </header>
-  <nav id="tabs">
-    <button data-tab="overview" class="active">Overview</button>
-    <button data-tab="board">OS State Board</button>
-    <button data-tab="queue">Approval Queue</button>
-    <button data-tab="topology">Topology</button>
-    <button data-tab="roadmap">Roadmap</button>
-    <button data-tab="milestones">Milestones</button>
-    <button data-tab="review">Review</button>
-    <button data-tab="learning">Learning</button>
-    <button data-tab="sources">Sources</button>
-    <button data-tab="health">Repo Health</button>
-    <span class="nav-spacer"></span>
-    <button id="refreshBtn" class="global-refresh" title="Re-read all governance and repo-health data">Refresh</button>
-    <span class="nav-meta" id="loadMeta" aria-live="polite"></span>
-  </nav>
-  <div class="controls">
-    <input id="filterText" type="text" placeholder="Filter (name, action, decision…)" />
-    <select id="filterStatus">
-      <option value="">All statuses</option>
-    </select>
+  <div class="app-shell" id="shell" data-density="comfortable">
+    <aside class="sidebar" id="sidebar" aria-label="Navigation and pinned operating context">
+      <div class="brand-block">
+        <button id="logo" class="brand-lockup" type="button" title="Return to Overview">
+          <img src="/dreamfeed/assets/logo-lockup.svg" alt="Dreamfeed Verified Node" />
+        </button>
+        <span class="canonical-name">Stakeport OS Command Center</span>
+      </div>
+
+      <section class="pinned-context" aria-labelledby="pinned-title">
+        <div class="region-label" id="pinned-title">Pinned context</div>
+        <div class="context-row"><span>Transport</span><b>LOCALHOST · GET ONLY</b></div>
+        <div class="context-row"><span>Truth</span><b>SOURCE → COCKPIT</b></div>
+        <div class="context-row"><span>Session</span><b id="sessionState">IN MEMORY</b></div>
+      </section>
+
+      <div class="region-label nav-label">Work modes</div>
+      <nav id="tabs" class="lens-nav" aria-label="Command Center work modes">
+        <button type="button" data-tab="overview" data-lens="Dashboard" class="active">Overview</button>
+        <button type="button" data-tab="board" data-lens="Board">OS State Board</button>
+        <button type="button" data-tab="queue" data-lens="Board">Approval Queue</button>
+        <button type="button" data-tab="topology" data-lens="Topology">Topology</button>
+        <button type="button" data-tab="roadmap" data-lens="Document">Roadmap</button>
+        <button type="button" data-tab="milestones" data-lens="Board">Milestones</button>
+        <button type="button" data-tab="review" data-lens="Document">Review</button>
+        <button type="button" data-tab="learning" data-lens="Dashboard">Learning</button>
+        <button type="button" data-tab="sources" data-lens="Table">Sources</button>
+        <button type="button" data-tab="health" data-lens="Table">Repo Health</button>
+      </nav>
+
+      <div class="sidebar-foot">
+        <span class="region-label">Selected lens</span>
+        <b id="activeLensLabel">Dashboard</b>
+      </div>
+    </aside>
+
+    <header class="command-bar" id="commandBar" aria-label="Command bar">
+      <button type="button" class="icon-control mobile-only" id="sidebarToggle" aria-label="Toggle navigation">NAV</button>
+      <label class="search-control" for="filterText">
+        <span>Search</span>
+        <input id="filterText" type="search" placeholder="Filter objects, actions, decisions" autocomplete="off" />
+      </label>
+      <label class="compact-control" for="filterStatus">
+        <span>State</span>
+        <select id="filterStatus"><option value="">All states</option></select>
+      </label>
+      <label class="compact-control lens-control" for="lensControl">
+        <span>Lens</span>
+        <select id="lensControl">
+          <option value="Dashboard">Dashboard</option>
+          <option value="Board">Board</option>
+          <option value="Table">Table</option>
+          <option value="Document">Document</option>
+          <option value="IDE">IDE</option>
+          <option value="Topology">Topology</option>
+        </select>
+      </label>
+      <div class="command-spacer"></div>
+      <button type="button" class="command-button" id="refreshBtn" title="Re-read source-backed state">Refresh</button>
+      <button type="button" class="command-button" id="densityBtn" title="Toggle density">Density: comfortable</button>
+      <button type="button" class="command-button" id="inspectorToggle" aria-pressed="true">Inspector</button>
+      <button type="button" class="command-button" id="bottomToggle" aria-pressed="true">Validation</button>
+      <span class="command-meta" id="loadMeta" aria-live="polite">Loading source-backed state…</span>
+    </header>
+
+    <main id="main" class="main-canvas" tabindex="-1" aria-live="polite">
+      <div class="loading-state">Loading source-backed operating state…</div>
+    </main>
+
+    <aside id="inspector" class="inspector" aria-label="Selected object inspector">
+      <div class="inspector-placeholder">Select a graph node, card, or table row to inspect its source-backed detail.</div>
+    </aside>
+
+    <section id="bottomPanel" class="bottom-panel" aria-label="Validation, provenance, and session feedback">
+      <div class="bottom-loading">Loading validation traces…</div>
+    </section>
   </div>
-  <main id="main"><p style="color:var(--type-muted)">Loading OS state…</p></main>
-  <aside id="sidepanel" aria-hidden="true">
-    <div class="sp-head">
-      <div><div class="sp-title" id="spTitle"></div><div class="sp-meta" id="spMeta"></div></div>
-      <button class="sp-close" id="spClose">✕ close</button>
-    </div>
-    <div class="sp-body" id="spBody"></div>
-  </aside>
   <script src="/app.js"></script>
 </body>
 </html>

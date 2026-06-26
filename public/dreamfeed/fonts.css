@@ -1,0 +1,9 @@
+/* Self-hosted IBM Plex assets. No runtime font CDN is used by Dreamfeed. */
+@font-face { font-family: "IBM Plex Sans"; src: url("/dreamfeed/fonts/IBMPlexSans-Regular.woff2") format("woff2"); font-weight: 400; font-style: normal; font-display: swap; }
+@font-face { font-family: "IBM Plex Sans"; src: url("/dreamfeed/fonts/IBMPlexSans-Medium.woff2") format("woff2"); font-weight: 500; font-style: normal; font-display: swap; }
+@font-face { font-family: "IBM Plex Sans"; src: url("/dreamfeed/fonts/IBMPlexSans-SemiBold.woff2") format("woff2"); font-weight: 600; font-style: normal; font-display: swap; }
+@font-face { font-family: "IBM Plex Sans"; src: url("/dreamfeed/fonts/IBMPlexSans-Bold.woff2") format("woff2"); font-weight: 700; font-style: normal; font-display: swap; }
+@font-face { font-family: "IBM Plex Mono"; src: url("/dreamfeed/fonts/IBMPlexMono-Regular.woff2") format("woff2"); font-weight: 400; font-style: normal; font-display: swap; }
+@font-face { font-family: "IBM Plex Mono"; src: url("/dreamfeed/fonts/IBMPlexMono-Medium.woff2") format("woff2"); font-weight: 500; font-style: normal; font-display: swap; }
+@font-face { font-family: "IBM Plex Mono"; src: url("/dreamfeed/fonts/IBMPlexMono-SemiBold.woff2") format("woff2"); font-weight: 600; font-style: normal; font-display: swap; }
+@font-face { font-family: "IBM Plex Mono"; src: url("/dreamfeed/fonts/IBMPlexMono-Bold.woff2") format("woff2"); font-weight: 700; font-style: normal; font-display: swap; }

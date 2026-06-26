@@ -38,12 +38,29 @@ function readRepoFile(relPath) {
 
 const PORT = process.env.DREAMFEED_PORT ? parseInt(process.env.DREAMFEED_PORT, 10) : 4173;
 const PUBLIC_DIR = path.join(__dirname, '..', 'public');
+const DREAMFEED_SYSTEM_DIR = path.join(REPO_ROOT, 'docs', 'dreamfeed', 'design-system');
 
 const STATIC = {
   '/': { file: 'index.html', type: 'text/html; charset=utf-8' },
   '/index.html': { file: 'index.html', type: 'text/html; charset=utf-8' },
   '/styles.css': { file: 'styles.css', type: 'text/css; charset=utf-8' },
   '/app.js': { file: 'app.js', type: 'text/javascript; charset=utf-8' },
+  // Canonical Dreamfeed assets and token CSS are deliberately exposed through
+  // fixed, read-only routes. The production cockpit does not import the
+  // design-system React/CDN prototype or allow arbitrary docs paths.
+  '/dreamfeed/assets/logo-lockup.svg': { path: path.join(DREAMFEED_SYSTEM_DIR, 'assets', 'logo-lockup.svg'), type: 'image/svg+xml' },
+  '/dreamfeed/assets/logo-mark.svg': { path: path.join(DREAMFEED_SYSTEM_DIR, 'assets', 'logo-mark.svg'), type: 'image/svg+xml' },
+  '/dreamfeed/tokens/colors.css': { path: path.join(DREAMFEED_SYSTEM_DIR, 'tokens', 'colors.css'), type: 'text/css; charset=utf-8' },
+  '/dreamfeed/tokens/typography.css': { path: path.join(DREAMFEED_SYSTEM_DIR, 'tokens', 'typography.css'), type: 'text/css; charset=utf-8' },
+  '/dreamfeed/fonts.css': { file: 'dreamfeed/fonts.css', type: 'text/css; charset=utf-8' },
+  '/dreamfeed/fonts/IBMPlexSans-Regular.woff2': { file: 'dreamfeed/fonts/IBMPlexSans-Regular.woff2', type: 'font/woff2' },
+  '/dreamfeed/fonts/IBMPlexSans-Medium.woff2': { file: 'dreamfeed/fonts/IBMPlexSans-Medium.woff2', type: 'font/woff2' },
+  '/dreamfeed/fonts/IBMPlexSans-SemiBold.woff2': { file: 'dreamfeed/fonts/IBMPlexSans-SemiBold.woff2', type: 'font/woff2' },
+  '/dreamfeed/fonts/IBMPlexSans-Bold.woff2': { file: 'dreamfeed/fonts/IBMPlexSans-Bold.woff2', type: 'font/woff2' },
+  '/dreamfeed/fonts/IBMPlexMono-Regular.woff2': { file: 'dreamfeed/fonts/IBMPlexMono-Regular.woff2', type: 'font/woff2' },
+  '/dreamfeed/fonts/IBMPlexMono-Medium.woff2': { file: 'dreamfeed/fonts/IBMPlexMono-Medium.woff2', type: 'font/woff2' },
+  '/dreamfeed/fonts/IBMPlexMono-SemiBold.woff2': { file: 'dreamfeed/fonts/IBMPlexMono-SemiBold.woff2', type: 'font/woff2' },
+  '/dreamfeed/fonts/IBMPlexMono-Bold.woff2': { file: 'dreamfeed/fonts/IBMPlexMono-Bold.woff2', type: 'font/woff2' },
 };
 
 const server = http.createServer((req, res) => {
@@ -94,7 +111,7 @@ const server = http.createServer((req, res) => {
     res.end('Not found.');
     return;
   }
-  fs.readFile(path.join(PUBLIC_DIR, entry.file), (err, data) => {
+  fs.readFile(entry.path || path.join(PUBLIC_DIR, entry.file), (err, data) => {
     if (err) { res.writeHead(500); res.end('Static read error.'); return; }
     res.writeHead(200, { 'Content-Type': entry.type, 'Cache-Control': 'no-store' });
     res.end(data);
