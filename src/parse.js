@@ -6,8 +6,32 @@
 
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
 
 const REPO_ROOT = path.resolve(__dirname, '..', '..', '..');
+
+// ---------------------------------------------------------------------------
+// Root identity (project switching). The canonical root is resolved through
+// realpath (defeating symlink/junction aliasing) and case-normalized on Windows
+// (case-insensitive FS) so two spellings of the same directory share one
+// identity. `rootToken` is a short stable hash of that canonical form — every
+// read endpoint stamps it so a stale-root request can be rejected rather than
+// silently resolved against the wrong project.
+// ---------------------------------------------------------------------------
+function canonicalRoot(p) {
+  let resolved = path.resolve(p);
+  try { resolved = fs.realpathSync.native ? fs.realpathSync.native(resolved) : fs.realpathSync(resolved); }
+  catch { /* path may not exist yet; fall back to the resolved (non-real) form */ }
+  return resolved;
+}
+function canonicalKey(p) {
+  // Identity key for equality/hashing only — never displayed.
+  const c = canonicalRoot(p);
+  return process.platform === 'win32' ? c.toLowerCase() : c;
+}
+function rootToken(p) {
+  return crypto.createHash('sha1').update(canonicalKey(p)).digest('hex').slice(0, 12);
+}
 
 // ---------------------------------------------------------------------------
 // Frontmatter (guide §4): YAML between the first and second `---` lines.
@@ -59,9 +83,11 @@ function parseFrontmatterLines(fmLines) {
   return out;
 }
 
-function parseFile(absPath) {
+function parseFile(absPath, repoRoot = REPO_ROOT) {
   // Read-only file load with parse-error capture (never throws to caller).
-  const rel = path.relative(REPO_ROOT, absPath).split(path.sep).join('/');
+  // `repoRoot` controls the base the source-evidence relative path is computed
+  // against, so a switched project produces correct, in-repo provenance links.
+  const rel = path.relative(repoRoot, absPath).split(path.sep).join('/');
   try {
     const content = fs.readFileSync(absPath, 'utf8');
     const fmBlock = extractFrontmatter(content);
@@ -201,6 +227,9 @@ function slugify(text) {
 
 module.exports = {
   REPO_ROOT,
+  canonicalRoot,
+  canonicalKey,
+  rootToken,
   extractFrontmatter,
   parseFrontmatterLines,
   parseFile,

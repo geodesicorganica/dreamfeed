@@ -19,7 +19,24 @@ test('Dreamfeed shell exposes five persistent operating regions', () => {
     assert.match(html, new RegExp(`id="${id}"`), `missing persistent region: ${id}`);
   }
   assert.match(html, /id="refreshBtn"/, 'command bar keeps source refresh available');
+  assert.match(html, /id="projectBtn"/, 'command bar exposes the project switcher control');
+  assert.match(html, /id="projectDialog"/, 'project switch is a popover/dialog, not an inline path field');
   assert.match(html, /id="densityBtn"/, 'command bar exposes in-memory density control');
+});
+
+test('project switcher: native Select folder is primary, manual is the labeled fallback, token is header-only', () => {
+  const html = read('public', 'index.html');
+  const app = read('public', 'app.js');
+  assert.match(html, /id="projectBrowser"/, 'in-app folder browser (explorer) is present');
+  assert.match(html, /id="pbUse"/, 'Open this folder action is present');
+  assert.match(html, /id="projectSelectFolder"/, 'native dialog remains available as a secondary picker');
+  assert.match(html, /id="projectRecentWrap"/, 'recent-projects region exists');
+  assert.match(html, /Type a path instead/, 'manual path is demoted to a labeled fallback');
+  assert.match(app, /function browseTo\(/, 'in-app folder navigation exists');
+  assert.match(app, /function selectFolder\(/, 'select-folder flow exists');
+  assert.match(app, /'X-Dreamfeed-Token'/, 'guarded calls carry the action token as a custom header');
+  assert.doesNotMatch(app, /[?&]token=.*actionToken|actionToken[^)]*query/i, 'action token is not put in query params');
+  assert.doesNotMatch(app, /localStorage|sessionStorage|document\.cookie/, 'action token is never persisted to browser storage');
   assert.match(html, /id="inspectorToggle"/, 'command bar can control inspector visibility');
   assert.match(html, /id="bottomToggle"/, 'command bar can control validation panel visibility');
 });

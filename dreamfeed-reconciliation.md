@@ -32,10 +32,45 @@ C object semantics._
 | Graph label clipping | Rebuilt | Fixed-width SVG lanes, label truncation plus Inspector full-title detail | Labels no longer render into a negative SVG coordinate. |
 | Repo Health role remains read-only | Retained | Existing `src/repohealth.js`, audit display, tests | `repo-harness-auditor` remains an external read-only workflow; cockpit consumes audit records only. |
 | Localhost-only and GET-only transport | Retained + extended | `src/server.js` explicit static asset routes; existing 405 guard | Static Dreamfeed delivery adds no write path or external host. |
-| No persistence of cockpit configuration or editor state | Rejected for V1 | `public/app.js` uses memory-only `view` state; UI contract test checks browser storage absence | PS-002 FR16 overrides companion-draft Monaco-style persistence guidance. |
+| No persistence of cockpit configuration or editor state | Rejected for V1 (UI state) | `public/app.js` uses memory-only `view` state; UI contract test checks browser storage absence | PS-002 FR16 overrides companion-draft Monaco-style persistence guidance. UI state stays non-persistent; the only persisted item is the server-side active-project sidecar (see § Project switching below), not browser/UI state. |
+| Multi-project root selection (switch the project folder the cockpit reads) | **Founder-approved (D28, 2026-06-29)** | `src/server.js` `currentRoot` + `/api/project`; `project-config.json` sidecar; `buildState({repoRoot})`; root-aware `repohealth`/`audit`; `public/` project popover; `test/project.test.js` | **Scope addition beyond PS-002 Phase 1, overlapping deferred Phase 1.3, merged in as a PS-002 addendum.** Default unchanged (single Stakeport repo). Five relaxations (sidecar write, state-changing `/api/project` GET, root-rebased containment, restart persistence, one-active-project-per-server) approved under founder decision **D28**; separate from Gate 5b, which remains open. Six-object/provenance semantics unchanged. |
 | Execution, overrides, write-back, editing, agent invocation | Deferred / rejected for V1 | No transport routes or controls added | Explicit V1 and Phase 1.2 boundaries. |
 | React/CDN design-kit runtime | Rejected | Dependency-free CommonJS server and vanilla client retained | The Dreamfeed UI-kit remains reference material only. |
 | Parent Stakeport public brand, website copy, customer claims | Rejected as out of scope | No public brand artifacts changed | Dreamfeed scope is the internal Command Center shell. |
+
+## Project switching (founder-approved — decision D28, 2026-06-29)
+
+A multi-project root-selection capability is implemented and **founder-approved** as a PS-002
+addendum. It is a governed scope addition beyond PS-002 Phase 1 (overlapping the deferred Phase
+1.3 "workspace-import" path), tracked as decision **D28 (resolved 2026-06-29 — accepted)**, and
+**decoupled from Gate 5b** — approval here does not touch 5b, which remains separately open and
+still judges the already-submitted Brief B cockpit as it stands.
+
+- **Default is unchanged.** With no switch, the cockpit reads the single Stakeport OS repo
+  exactly as before.
+- **One active project per server.** All tabs/clients share `currentRoot`; switching repoints
+  every surface. Cross-root stale reads are blocked by a `rootToken` carried on `/api/state`,
+  `/api/repo-health`, `/api/project`, and required on `/api/file`.
+- **Localhost-only and read-only are retained.** No write-back to any project/governance file;
+  transport stays GET-only.
+- **Constraint relaxations approved under D28 (2026-06-29):** (1) a written cockpit-local `project-config.json`
+  sidecar (never a governance/source file; gitignored); (2) a state-changing `/api/project`
+  GET; (3) file-viewer containment rebased onto a user-chosen root (realpath + extension +
+  `.git`/`node_modules` + size guards retained); (4) selection persisted across restart;
+  (5) one active project per server; (6) the native folder picker spawns a local PowerShell
+  `FolderBrowserDialog` (fixed script, no request data interpolated, timeout-kills-child);
+  (7) a capped/deduped machine-local recent-projects list in the sidecar.
+- **Local action guard (CSRF/rebinding defense, not authorization):** state-changing/sensitive
+  actions (`/api/project?root=`, `/api/select-folder`) require an in-memory `X-Dreamfeed-Token`
+  (never persisted/never a query param) plus a Host-on-actual-port (incl. `[::1]`) + Sec-Fetch +
+  optional-Origin guard. The native picker sits behind a provider adapter (`src/projectPicker.js`)
+  with `manual` fallback and reserved seams for future breadcrumb/recent/local-agent/remote/cloud
+  providers; the single commit path stays `/api/project?root=`.
+- **Foreign-project Repo Health** shows live git state only and labels the audit "not
+  configured for this project" — the Stakeport audit harness never runs against another repo.
+
+Full rationale + Gate Transition Consistency Audit:
+`.claude/plans/2026-06-26-dreamfeed-project-switching.md`.
 
 ## Verification links
 

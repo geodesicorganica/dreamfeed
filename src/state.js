@@ -6,7 +6,7 @@
 const path = require('path');
 const {
   REPO_ROOT, parseFile, detectSchemaFamily, discoverGovernanceFiles,
-  loadStalenessThresholds, computeFreshness,
+  loadStalenessThresholds, computeFreshness, rootToken, canonicalKey,
 } = require('./parse');
 const {
   adaptStrategicInitiatives, adaptWeeklyPriorities, adaptDecisionQueue, adaptAgentDispatch,
@@ -27,11 +27,15 @@ const SOURCE_FILES = {
 
 function buildState(opts = {}) {
   const today = opts.today ? new Date(opts.today) : new Date();
+  // Project root is now a parameter (default = the Stakeport repo this cockpit
+  // ships in). Every read below resolves against `repoRoot`, so the cockpit can
+  // be pointed at another local project without re-anchoring to the default.
+  const repoRoot = opts.repoRoot || REPO_ROOT;
   const errors = [];
 
   let thresholds = {};
   try {
-    thresholds = loadStalenessThresholds(REPO_ROOT);
+    thresholds = loadStalenessThresholds(repoRoot);
   } catch (err) {
     errors.push({ path: 'shared/cockpit-integration-guide.md', error: `staleness table unavailable: ${err.message}` });
   }
@@ -41,7 +45,7 @@ function buildState(opts = {}) {
   const files = {};
   const sources = [];
   for (const [key, rel] of Object.entries(SOURCE_FILES)) {
-    const f = parseFile(path.join(REPO_ROOT, rel));
+    const f = parseFile(path.join(repoRoot, rel), repoRoot);
     files[key] = f;
     if (f.error) errors.push({ path: f.path, error: f.error });
     const family = detectSchemaFamily(f.frontmatter);
@@ -78,24 +82,26 @@ function buildState(opts = {}) {
   // Discovery sweep (guide §1) — surfaced for source visibility.
   let discovered = [];
   try {
-    discovered = discoverGovernanceFiles(REPO_ROOT).map(p =>
-      path.relative(REPO_ROOT, p).split(path.sep).join('/'));
+    discovered = discoverGovernanceFiles(repoRoot).map(p =>
+      path.relative(repoRoot, p).split(path.sep).join('/'));
   } catch (err) {
     errors.push({ path: 'agents/', error: `discovery sweep failed: ${err.message}` });
   }
 
   // ---- Brief B fast-follow surfaces (Phase 4) ----
-  const topology = buildTopology(REPO_ROOT);
-  const roadmap = buildRoadmap(REPO_ROOT);
+  const topology = buildTopology(repoRoot);
+  const roadmap = buildRoadmap(repoRoot);
   const milestones = adaptMilestones(roadmap.objects, si.objects);
-  const reviews = adaptReviews(REPO_ROOT, thresholds, today);
-  const learningSignals = adaptLearningSignals(REPO_ROOT, thresholds, today);
+  const reviews = adaptReviews(repoRoot, thresholds, today);
+  const learningSignals = adaptLearningSignals(repoRoot, thresholds, today);
   errors.push(...topology.errors, ...roadmap.errors, ...milestones.errors, ...reviews.errors, ...learningSignals.errors);
 
   return {
     generatedAt: new Date().toISOString(),
     asOfDate: today.toISOString().slice(0, 10),
     readOnly: true,
+    rootToken: rootToken(repoRoot),
+    isDefaultRoot: canonicalKey(repoRoot) === canonicalKey(REPO_ROOT),
     ui: { alias: 'Dreamfeed', canonicalName: 'Stakeport OS Command Center — Operational Core (Brief A)' },
     thresholdsSource: 'shared/cockpit-integration-guide.md §3',
     thresholds,

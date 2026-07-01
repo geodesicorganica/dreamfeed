@@ -6,38 +6,261 @@
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
 const { buildState } = require('./state');
 const { getRepoHealth } = require('./repohealth');
-const { REPO_ROOT } = require('./parse');
+const { REPO_ROOT, canonicalRoot, canonicalKey, rootToken } = require('./parse');
+const projectPicker = require('./projectPicker');
+
+// In-memory action token (D28 local action guard). Generated once per process,
+// never persisted to project-config.json / localStorage / cookies / governance
+// files / query params. Delivered only in the no-arg /api/project descriptor to
+// a request that passes the local request guard, and required as the
+// X-Dreamfeed-Token header on state-changing/sensitive actions. This is
+// transport-level CSRF/rebinding defense only — NOT an authorization model.
+const ACTION_TOKEN = crypto.randomBytes(32).toString('hex');
+const RECENT_CAP = 8;
 
 // Read-only file viewer (item B6 — approval deep-review). Strict allowlist:
-// repo-relative path, no traversal outside REPO_ROOT, allowed text extensions
-// only, never under .git/ or node_modules/, size-capped. GET only. The cockpit
-// never writes — this only reads file text for the embedded viewer.
+// repo-relative path, no traversal outside the active project root, allowed text
+// extensions only, never under .git/ or node_modules/, size-capped, and
+// realpath-contained so a symlink inside the root cannot escape it. GET only.
+// The cockpit never writes — this only reads file text for the embedded viewer.
 const VIEW_EXT = new Set(['.md', '.json', '.js', '.html', '.css', '.txt']);
 const VIEW_MAX_BYTES = 512 * 1024;
+const NO_GIT_NODE = /(^|\/)(\.git|node_modules)(\/|$)/;
 
-function readRepoFile(relPath) {
+// ---------------------------------------------------------------------------
+// Project switching (governed scope addition). The server holds ONE active
+// project root, defaulting to the Stakeport repo this cockpit ships in. It can
+// be repointed at another LOCAL folder, persisted across restart in a
+// cockpit-local sidecar (never a governance/source file). One active project per
+// server: all tabs share it. See dreamfeed-reconciliation.md.
+// ---------------------------------------------------------------------------
+const PROJECT_CONFIG_FILE = path.join(__dirname, '..', 'project-config.json');
+
+function validateRoot(p) {
+  if (!p || typeof p !== 'string') return { ok: false, error: 'missing path' };
+  if (!path.isAbsolute(p)) return { ok: false, error: 'project path must be absolute' };
+  let stat;
+  try { stat = fs.statSync(p); } catch { return { ok: false, error: 'path does not exist' }; }
+  if (!stat.isDirectory()) return { ok: false, error: 'path is not a directory' };
+  return { ok: true, root: canonicalRoot(p) };
+}
+
+function looksLikeRepo(root) {
+  try { return fs.existsSync(path.join(root, 'agents')) || fs.existsSync(path.join(root, 'CLAUDE.md')); }
+  catch { return false; }
+}
+
+// Read-only directory listing for the in-app folder browser (the cross-platform
+// "explorer" picker). Lists ONLY subdirectories (never file contents), the parent
+// for up-navigation, and on Windows the available drive roots. Sensitive (it
+// discloses local folder structure), so it is behind the action guard at the
+// route. Never writes anything.
+function windowsDrives() {
+  if (process.platform !== 'win32') return [];
+  const drives = [];
+  for (let c = 65; c <= 90; c++) {
+    const d = `${String.fromCharCode(c)}:\\`;
+    try { if (fs.existsSync(d)) drives.push(d); } catch { /* skip */ }
+  }
+  return drives;
+}
+function listDirs(reqPath) {
+  // Default to the active project root when no path is given.
+  let target = reqPath && reqPath.trim() ? reqPath : currentRoot;
+  try { target = path.resolve(target); } catch { return { error: 'invalid path' }; }
+  let stat;
+  try { stat = fs.statSync(target); } catch { return { error: 'path not found', path: target }; }
+  if (!stat.isDirectory()) target = path.dirname(target);
+  let entries = [];
+  try {
+    entries = fs.readdirSync(target, { withFileTypes: true })
+      .filter((d) => { try { return d.isDirectory(); } catch { return false; } })
+      .map((d) => ({ name: d.name, path: path.join(target, d.name) }))
+      .filter((e) => !e.name.startsWith('$')) // hide $Recycle.bin etc.
+      .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }));
+  } catch { entries = []; } // unreadable dir → empty list, not an error
+  const parent = path.dirname(target);
+  const atRoot = parent === target;
+  return {
+    path: target,
+    parent: atRoot ? null : parent,
+    atRoot,
+    entries,
+    drives: windowsDrives(),
+    looksLikeRepo: looksLikeRepo(target),
+  };
+}
+
+// Canonical identity of the fixed default root, computed once (realpath is a
+// syscall; the default never changes for the process lifetime).
+const REPO_ROOT_KEY = canonicalKey(REPO_ROOT);
+function isDefaultRoot(root) { return canonicalKey(root) === REPO_ROOT_KEY; }
+
+function sendJson(res, status, body) {
+  res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
+  res.end(JSON.stringify(body));
+}
+
+let currentRoot = REPO_ROOT;
+let restoreWarning = null;
+let recentRoots = []; // machine-local convenience only — NOT a governance object/registry.
+
+function persistConfig() {
+  // Cockpit-local sidecar: active root + recent list. Never a governance/source
+  // file; gitignored. The action token is NEVER written here.
+  try { fs.writeFileSync(PROJECT_CONFIG_FILE, JSON.stringify({ root: currentRoot, recent: recentRoots }, null, 2) + '\n', 'utf8'); return null; }
+  catch (err) { return String(err.message || err); }
+}
+
+function rememberRecent(root) {
+  // Dedupe by canonical identity (case-insensitive on Windows); cap; default
+  // root is not listed as "recent".
+  if (isDefaultRoot(root)) return;
+  recentRoots = [root, ...recentRoots.filter((r) => canonicalKey(r) !== canonicalKey(root))].slice(0, RECENT_CAP);
+}
+
+(function restorePersistedRoot() {
+  let raw;
+  try { raw = fs.readFileSync(PROJECT_CONFIG_FILE, 'utf8'); } catch { return; }
+  let rec;
+  try { rec = JSON.parse(raw); } catch { restoreWarning = 'project-config.json unreadable; using default project'; return; }
+  if (!rec) return;
+  // Restore the recent list (validated, existing dirs only), preserving order.
+  if (Array.isArray(rec.recent)) {
+    const seen = new Set();
+    for (const r of rec.recent) {
+      const v = validateRoot(r);
+      if (!v.ok) continue;
+      const k = canonicalKey(v.root);
+      if (k === REPO_ROOT_KEY || seen.has(k)) continue;
+      seen.add(k); recentRoots.push(v.root);
+      if (recentRoots.length >= RECENT_CAP) break;
+    }
+  }
+  if (!rec.root || isDefaultRoot(rec.root)) return;
+  const v = validateRoot(rec.root);
+  if (v.ok) currentRoot = v.root;
+  else restoreWarning = `saved project ${rec.root} is unavailable (${v.error}); using default project`;
+})();
+
+// ---------------------------------------------------------------------------
+// Local request guard (D28). Transport-level CSRF + DNS-rebinding defense only —
+// never authorization. `localRequestGuard` gates the no-arg descriptor (token
+// emission); `guardMutation` adds the X-Dreamfeed-Token header check for
+// state-changing/sensitive actions. A future capability/permission model layers
+// on top without touching this.
+// ---------------------------------------------------------------------------
+function isLoopbackHostName(h) {
+  return h === '127.0.0.1' || h === 'localhost' || h === '[::1]' || h === '::1';
+}
+function listenPort(req) {
+  return String(req.socket && req.socket.localPort ? req.socket.localPort : '');
+}
+
+function allowedHost(req) {
+  // Host must name loopback on the ACTUAL listening port (never hardcode 4173),
+  // so random test ports and DREAMFEED_PORT work; defeats DNS rebinding.
+  const hostHeader = req.headers.host;
+  if (!hostHeader) return false;
+  // Split host:port, handling IPv6 [::1]:port. A malformed header → reject.
+  const m = hostHeader.match(/^(\[[^\]]+\]|[^:]+)(?::(\d+))?$/);
+  if (!m) return false;
+  const host = m[1], hp = m[2] || '';
+  if (!isLoopbackHostName(host)) return false;
+  // If a port is claimed it MUST match the listening port. If we cannot determine
+  // our port, refuse rather than silently accept any claimed port. A bare host
+  // (no port) is accepted (default-port case).
+  if (hp && hp !== listenPort(req)) return false;
+  return true;
+}
+
+function originRefererOk(req) {
+  // Optional: validate ONLY when present; absence is never a rejection.
+  for (const h of ['origin', 'referer']) {
+    const val = req.headers[h];
+    if (!val) continue;
+    let u;
+    try { u = new URL(val); } catch { return false; }
+    if (!isLoopbackHostName(u.hostname)) return false;
+    const port = listenPort(req);
+    if (u.port && port && u.port !== port) return false;
+  }
+  return true;
+}
+
+function localRequestGuard(req) {
+  if (!allowedHost(req)) return { ok: false, status: 403, error: 'host not allowed' };
+  // Sec-Fetch-Site, when present, must not be cross-site/same-site. Absent is OK
+  // (non-browser clients); the token remains the primary gate for mutations.
+  const sfs = req.headers['sec-fetch-site'];
+  if (sfs && sfs !== 'same-origin' && sfs !== 'none') return { ok: false, status: 403, error: 'cross-site request rejected' };
+  if (!originRefererOk(req)) return { ok: false, status: 403, error: 'origin/referer not allowed' };
+  return { ok: true };
+}
+
+function guardMutation(req) {
+  const base = localRequestGuard(req);
+  if (!base.ok) return base;
+  const token = req.headers['x-dreamfeed-token'];
+  if (!token || token !== ACTION_TOKEN) return { ok: false, status: 403, error: 'missing or invalid action token' };
+  return { ok: true };
+}
+
+function projectDescriptor(req, extra = {}) {
+  const guarded = req ? localRequestGuard(req) : { ok: true };
+  return {
+    currentRoot,
+    rootToken: rootToken(currentRoot),
+    default: REPO_ROOT,
+    isDefault: isDefaultRoot(currentRoot),
+    valid: true,
+    looksLikeRepo: looksLikeRepo(currentRoot),
+    label: path.basename(currentRoot) || currentRoot,
+    restoreWarning,
+    recent: recentRoots.map((r) => ({ path: r, label: path.basename(r) || r })),
+    pickers: { native: projectPicker.nativeAvailable(), providers: projectPicker.listProviders() },
+    // Token only to an HTTP request that passes the local guard — never in a raw
+    // descriptor dump (req absent).
+    ...(req && guarded.ok ? { actionToken: ACTION_TOKEN } : {}),
+    ...extra,
+  };
+}
+
+function readRepoFile(relPath, repoRoot = currentRoot) {
   if (!relPath || typeof relPath !== 'string') return { error: 'missing path' };
   const norm = relPath.replace(/\\/g, '/');
   if (norm.includes('..')) return { error: 'path traversal rejected' };
-  const abs = path.resolve(REPO_ROOT, norm);
-  const rootPrefix = REPO_ROOT.endsWith(path.sep) ? REPO_ROOT : REPO_ROOT + path.sep;
-  if (abs !== REPO_ROOT && !abs.startsWith(rootPrefix)) return { error: 'outside repository' };
-  const relCheck = path.relative(REPO_ROOT, abs).replace(/\\/g, '/');
-  if (/(^|\/)(\.git|node_modules)(\/|$)/.test(relCheck)) return { error: 'path not viewable' };
+  const realRoot = canonicalRoot(repoRoot);
+  const abs = path.resolve(realRoot, norm);
+  const rootPrefix = realRoot.endsWith(path.sep) ? realRoot : realRoot + path.sep;
+  if (abs !== realRoot && !abs.startsWith(rootPrefix)) return { error: 'outside repository' };
+  const relCheck = path.relative(realRoot, abs).replace(/\\/g, '/');
+  if (NO_GIT_NODE.test(relCheck)) return { error: 'path not viewable' };
   if (!VIEW_EXT.has(path.extname(abs).toLowerCase())) return { error: 'extension not viewable' };
   let stat;
   try { stat = fs.statSync(abs); } catch { return { error: 'not found' }; }
   if (!stat.isFile()) return { error: 'not a file' };
   if (stat.size > VIEW_MAX_BYTES) return { error: `file too large (${stat.size} bytes; cap ${VIEW_MAX_BYTES})` };
+  // Realpath containment: a symlink/junction inside the root must not point out
+  // of it (string-prefix alone cannot catch this once arbitrary roots are allowed).
+  let realTarget;
+  try { realTarget = fs.realpathSync(abs); } catch { return { error: 'not found' }; }
+  const realTargetOk = realTarget === realRoot || realTarget.startsWith(rootPrefix);
+  if (!realTargetOk) return { error: 'symlink escapes repository' };
+  if (NO_GIT_NODE.test(path.relative(realRoot, realTarget).replace(/\\/g, '/'))) return { error: 'path not viewable' };
   try {
-    return { path: relCheck, size: stat.size, modified: stat.mtime.toISOString(), content: fs.readFileSync(abs, 'utf8') };
+    return { path: relCheck, size: stat.size, modified: stat.mtime.toISOString(), content: fs.readFileSync(realTarget, 'utf8') };
   } catch (err) { return { error: String(err.message || err) }; }
 }
 
 const PORT = process.env.DREAMFEED_PORT ? parseInt(process.env.DREAMFEED_PORT, 10) : 4173;
 const PUBLIC_DIR = path.join(__dirname, '..', 'public');
+// The Dreamfeed design system is the cockpit's OWN brand, served from the repo
+// the cockpit ships in — it is intentionally NOT re-resolved against the active
+// project root.
 const DREAMFEED_SYSTEM_DIR = path.join(REPO_ROOT, 'docs', 'dreamfeed', 'design-system');
 
 const STATIC = {
@@ -70,39 +293,88 @@ const server = http.createServer((req, res) => {
     return;
   }
   const url = req.url.split('?')[0];
-  if (url === '/api/state') {
-    // Pull architecture: every request re-reads the governance files.
-    let state;
-    try {
-      state = buildState();
-    } catch (err) {
-      res.writeHead(500, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ fatal: String(err.message || err) }));
+  const params = new URLSearchParams(req.url.split('?')[1] || '');
+  // Host check applies to all /api/* (cheap DNS-rebinding defense).
+  if (url.startsWith('/api/') && !allowedHost(req)) {
+    sendJson(res, 403, { error: 'host not allowed' });
+    return;
+  }
+  if (url === '/api/project') {
+    // State-changing GET when ?root= is present (transport stays GET-only; no
+    // governance file is written — only the cockpit-local sidecar). no-store so a
+    // cached response cannot return a stale rootToken/token.
+    const rootParam = params.get('root');
+    if (rootParam !== null) {
+      // Mutation: require the local action guard + X-Dreamfeed-Token.
+      const g = guardMutation(req);
+      if (!g.ok) { sendJson(res, g.status, { error: g.error }); return; }
+      const v = validateRoot(rootParam);
+      if (!v.ok) { sendJson(res, 400, projectDescriptor(req, { error: v.error })); return; } // currentRoot unchanged
+      // A switch off the default lists the PRIOR active project as recent; never
+      // lists the default itself.
+      rememberRecent(currentRoot);
+      currentRoot = v.root;
+      restoreWarning = null;
+      const persistWarning = persistConfig();
+      sendJson(res, 200, projectDescriptor(req, persistWarning ? { persistWarning } : {}));
       return;
     }
-    res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
-    res.end(JSON.stringify(state));
+    // Read-only descriptor (bootstraps the action token to the same-origin page).
+    sendJson(res, 200, projectDescriptor(req));
+    return;
+  }
+  if (url === '/api/select-folder') {
+    // Sensitive local action (opens a folder dialog): require the action guard.
+    // SELECT ONLY — it returns a chosen path; it does NOT switch. The single
+    // commit path remains /api/project?root=.
+    const g = guardMutation(req);
+    if (!g.ok) { sendJson(res, g.status, { error: g.error }); return; }
+    const provider = params.get('provider') || 'nativeDialog';
+    projectPicker.pick(provider)
+      .then((result) => sendJson(res, result.error ? 400 : 200, result))
+      .catch((err) => sendJson(res, 500, { error: String(err && err.message || err) }));
+    return;
+  }
+  if (url === '/api/dirs') {
+    // In-app folder browser: read-only directory listing. Sensitive (discloses
+    // local folder names), so require the action guard. SELECT ONLY — navigation
+    // does not switch; the single commit path remains /api/project?root=.
+    const g = guardMutation(req);
+    if (!g.ok) { sendJson(res, g.status, { error: g.error }); return; }
+    const out = listDirs(params.get('path'));
+    sendJson(res, out.error ? 400 : 200, out);
+    return;
+  }
+  if (url === '/api/state') {
+    // Pull architecture: every request re-reads the active project's files.
+    try {
+      sendJson(res, 200, buildState({ repoRoot: currentRoot }));
+    } catch (err) {
+      sendJson(res, 500, { fatal: String(err.message || err) });
+    }
     return;
   }
   if (url === '/api/repo-health') {
-    // Goal C — read-only git inspection. Never mutates the repo.
-    let health;
-    try { health = getRepoHealth(); }
-    catch (err) {
-      res.writeHead(500, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ fatal: String(err.message || err) }));
-      return;
+    // Goal C — read-only git inspection of the active project. Never mutates it.
+    try {
+      sendJson(res, 200, getRepoHealth(currentRoot));
+    } catch (err) {
+      sendJson(res, 500, { fatal: String(err.message || err) });
     }
-    res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
-    res.end(JSON.stringify(health));
     return;
   }
   if (url === '/api/file') {
-    const q = req.url.split('?')[1] || '';
-    const params = new URLSearchParams(q);
-    const out = readRepoFile(params.get('path'));
-    res.writeHead(out.error ? 400 : 200, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
-    res.end(JSON.stringify(out));
+    // Stale-root guard: the client sends the rootToken from the state snapshot
+    // the path came from. A mismatch means the project changed under it — reject
+    // rather than resolve an old relative path against the new root.
+    const token = params.get('token');
+    const tok = rootToken(currentRoot);
+    if (token !== null && token !== tok) {
+      sendJson(res, 409, { error: 'project changed — refresh', rootToken: tok });
+      return;
+    }
+    const out = readRepoFile(params.get('path'), currentRoot);
+    sendJson(res, out.error ? 400 : 200, out);
     return;
   }
   const entry = STATIC[url];
@@ -121,7 +393,18 @@ const server = http.createServer((req, res) => {
 if (require.main === module) {
   server.listen(PORT, '127.0.0.1', () => {
     console.log(`Dreamfeed (Stakeport OS Command Center — Operational Core) on http://127.0.0.1:${PORT}/ — localhost-only, read-only.`);
+    console.log(`Active project: ${currentRoot}${isDefaultRoot(currentRoot) ? ' (default)' : ''}`);
+    if (restoreWarning) console.log(`Note: ${restoreWarning}`);
   });
 }
 
-module.exports = { server, PORT, readRepoFile };
+module.exports = {
+  server, PORT, readRepoFile, validateRoot, projectDescriptor,
+  localRequestGuard, guardMutation, ACTION_TOKEN,
+  PROJECT_CONFIG_FILE,
+  // Test-only accessors for the in-memory active root / recent list.
+  _getCurrentRoot: () => currentRoot,
+  _setCurrentRoot: (r) => { currentRoot = r; },
+  _getRecent: () => recentRoots.slice(),
+  _resetForTest: () => { currentRoot = REPO_ROOT; recentRoots = []; restoreWarning = null; },
+};

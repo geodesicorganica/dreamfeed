@@ -62,6 +62,9 @@ function main() {
   const record = {
     auditor: 'repo-harness-auditor (in-repo harness: tools/command-center/audit.js)',
     generatedAt: new Date().toISOString(),
+    // Canonical identity of the audited root (matches src/parse.js canonicalKey),
+    // so Repo Health never displays this record against a different project.
+    repoRoot: require('./src/parse').canonicalKey(REPO_ROOT),
     overall: commands.every(c => c.status === 'pass') ? 'pass' : 'fail',
     git: gitStatusSummary(),
     commands,

@@ -9,17 +9,17 @@
 const { execFileSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
-const { REPO_ROOT } = require('./parse');
+const { REPO_ROOT, canonicalKey, rootToken } = require('./parse');
 
 const READONLY_SUBCOMMANDS = new Set(['rev-parse', 'status', 'log', 'rev-list']);
 const AUDIT_STATUS_FILE = path.join(__dirname, '..', 'audit-status.json');
 
-function git(args) {
+function git(args, cwd = REPO_ROOT) {
   if (!READONLY_SUBCOMMANDS.has(args[0])) throw new Error(`repohealth: refused non-read-only git subcommand "${args[0]}"`);
-  return execFileSync('git', ['--no-optional-locks', ...args], { cwd: REPO_ROOT, encoding: 'utf8', timeout: 5000, windowsHide: true }).trim();
+  return execFileSync('git', ['--no-optional-locks', ...args], { cwd, encoding: 'utf8', timeout: 5000, windowsHide: true }).trim();
 }
-function tryGit(args) {
-  try { return { ok: true, out: git(args) }; }
+function tryGit(args, cwd = REPO_ROOT) {
+  try { return { ok: true, out: git(args, cwd) }; }
   catch (err) { return { ok: false, out: null, error: String(err.message || err).split('\n')[0] }; }
 }
 
@@ -43,12 +43,22 @@ const AUDIT_WORKFLOW = {
   harnessPurpose: 'concrete read-only check harness (governance validators + cockpit tests + git snapshot) — writes audit-status.json that this panel reads',
 };
 
-function readAudit(now, lastCommitIso, clean) {
+function readAudit(now, lastCommitIso, clean, repoRoot, auditConfigured) {
+  // The audit harness (audit.js) only knows how to audit the Stakeport repo this
+  // cockpit ships in. For any other project, no harness is configured — show git
+  // health only, never a foreign repo's audit record (review finding).
+  if (!auditConfigured) return { everRun: false, auditConfigured: false, workflow: AUDIT_WORKFLOW };
   let raw;
   try { raw = fs.readFileSync(AUDIT_STATUS_FILE, 'utf8'); }
-  catch { return { everRun: false, workflow: AUDIT_WORKFLOW }; }
+  catch { return { everRun: false, auditConfigured: true, workflow: AUDIT_WORKFLOW }; }
   let rec;
-  try { rec = JSON.parse(raw); } catch (err) { return { everRun: false, parseError: String(err.message || err), workflow: AUDIT_WORKFLOW }; }
+  try { rec = JSON.parse(raw); } catch (err) { return { everRun: false, auditConfigured: true, parseError: String(err.message || err), workflow: AUDIT_WORKFLOW }; }
+
+  // Defensive: if the sidecar was stamped for a different root than the active
+  // one, do not display it against this project.
+  if (rec.repoRoot && repoRoot && rec.repoRoot !== canonicalKey(repoRoot)) {
+    return { everRun: false, auditConfigured: true, workflow: AUDIT_WORKFLOW };
+  }
 
   // Freshness model (item B3): the audit is "stale" if the repo changed since it ran
   // (working tree dirty, or a commit landed after the audit timestamp).
@@ -60,6 +70,7 @@ function readAudit(now, lastCommitIso, clean) {
 
   return {
     everRun: true,
+    auditConfigured: true,
     workflow: AUDIT_WORKFLOW,
     lastRun: ranAt,
     lastRunLabel: ageLabel(ranAt, now),
@@ -87,27 +98,32 @@ function neverRunCommands() {
   ];
 }
 
-function getRepoHealth() {
+function getRepoHealth(repoRoot = REPO_ROOT) {
   const now = Date.now();
+  // The in-repo audit harness only targets the default Stakeport root; any other
+  // project shows live git state only until an import/harness exists for it.
+  const auditConfigured = canonicalKey(repoRoot) === canonicalKey(REPO_ROOT);
   const result = {
     readOnly: true, inspectedAt: new Date(now).toISOString(), isRepo: true,
+    rootToken: rootToken(repoRoot),
+    auditConfigured,
     branch: null, clean: null, counts: { staged: 0, unstaged: 0, untracked: 0 },
     lastCommit: null, upstream: { exists: false, ahead: null, behind: null },
     safeToProceed: null, safeReason: null, errors: [],
     audit: null, validationCommands: [],
   };
 
-  const branch = tryGit(['rev-parse', '--abbrev-ref', 'HEAD']);
+  const branch = tryGit(['rev-parse', '--abbrev-ref', 'HEAD'], repoRoot);
   if (!branch.ok) {
     result.isRepo = false; result.errors.push(`branch: ${branch.error}`);
     result.safeToProceed = false; result.safeReason = 'not a git repository (or git unavailable)';
-    result.audit = readAudit(now, null, null);
-    result.validationCommands = result.audit.everRun ? result.audit.commands : neverRunCommands();
+    result.audit = readAudit(now, null, null, repoRoot, auditConfigured);
+    result.validationCommands = result.audit.everRun ? result.audit.commands : (auditConfigured ? neverRunCommands() : []);
     return result;
   }
   result.branch = branch.out;
 
-  const status = tryGit(['status', '--porcelain=v1']);
+  const status = tryGit(['status', '--porcelain=v1'], repoRoot);
   if (status.ok) {
     const lines = status.out ? status.out.split('\n').filter(Boolean) : [];
     for (const line of lines) {
@@ -118,16 +134,16 @@ function getRepoHealth() {
     result.clean = lines.length === 0;
   } else { result.errors.push(`status: ${status.error}`); }
 
-  const log = tryGit(['log', '-1', '--format=%h%x1f%s%x1f%an%x1f%aI']);
+  const log = tryGit(['log', '-1', '--format=%h%x1f%s%x1f%an%x1f%aI'], repoRoot);
   if (log.ok && log.out) {
     const [hash, subject, author, isoDate] = log.out.split('\x1f');
     result.lastCommit = { hash, subject, author, date: isoDate, dateLabel: ageLabel(isoDate, now) };
   } else if (!log.ok) { result.errors.push(`log: ${log.error}`); }
 
-  const upstreamRef = tryGit(['rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{upstream}']);
+  const upstreamRef = tryGit(['rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{upstream}'], repoRoot);
   if (upstreamRef.ok && upstreamRef.out) {
     result.upstream.exists = true; result.upstream.name = upstreamRef.out;
-    const counts = tryGit(['rev-list', '--count', '--left-right', '@{upstream}...HEAD']);
+    const counts = tryGit(['rev-list', '--count', '--left-right', '@{upstream}...HEAD'], repoRoot);
     if (counts.ok && counts.out) {
       const m = counts.out.split(/\s+/);
       result.upstream.behind = parseInt(m[0], 10);
@@ -145,8 +161,8 @@ function getRepoHealth() {
     result.safeReason = `uncommitted changes present (${parts.join(', ')}) — review before destructive actions`;
   } else { result.safeReason = 'git status unavailable'; }
 
-  result.audit = readAudit(now, result.lastCommit && result.lastCommit.date, result.clean);
-  result.validationCommands = result.audit.everRun ? result.audit.commands : neverRunCommands();
+  result.audit = readAudit(now, result.lastCommit && result.lastCommit.date, result.clean, repoRoot, auditConfigured);
+  result.validationCommands = result.audit.everRun ? result.audit.commands : (auditConfigured ? neverRunCommands() : []);
   return result;
 }
 

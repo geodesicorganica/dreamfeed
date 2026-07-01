@@ -161,7 +161,60 @@ section.group { margin: 0 0 20px; }
 .srclink:hover { color: var(--df-text-1); }
 .banner { margin-bottom: 12px; padding: 8px 10px; background: var(--df-panel); border: 1px solid var(--df-line); border-left: 2px solid var(--df-cyan); border-radius: var(--radius); color: var(--df-text-2); font-size: var(--fs-75); line-height: var(--lh-read); }
 .banner b { color: var(--df-text-1); font-weight: 600; }
+.banner-warn { border-left-color: var(--df-amber); }
+.banner-warn code { font-family: var(--font-mono); color: var(--df-text-1); }
 .error-card { border-color: var(--df-red); }
+
+/* Project switcher — compact button truncates; full path lives in the dialog. */
+.project-control { width: 132px; }
+.project-button { width: 100%; display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; }
+.project-button.switched { border-color: var(--df-amber); color: var(--df-text-1); }
+.project-dialog { width: min(560px, 92vw); padding: 0; border: 1px solid var(--border-strong); border-radius: var(--radius); background: var(--df-panel); color: var(--df-text-1); }
+.project-dialog::backdrop { background: rgba(0, 0, 0, 0.55); }
+.project-form { padding: 16px 18px; display: grid; gap: 8px; }
+.project-form h2 { margin: 0; font: 600 var(--fs-100)/1.2 var(--font-sans); }
+.project-current { margin: 0; color: var(--df-text-muted); font-size: var(--fs-75); }
+.project-current code, .project-dialog code { font-family: var(--font-mono); color: var(--df-text-2); }
+.project-form label { color: var(--df-text-muted); font: 600 var(--fs-50)/1 var(--font-sans); letter-spacing: var(--ls-label); text-transform: uppercase; }
+.project-form input { width: 100%; padding: 7px 9px; background: var(--df-bg-sunken); border: 1px solid var(--df-line); border-radius: var(--radius); color: var(--df-text-1); font-family: var(--font-mono); font-size: var(--fs-75); }
+.project-hint { margin: 0; color: var(--df-text-muted); font-size: var(--fs-50); line-height: var(--lh-read); }
+.project-error { margin: 0; color: var(--df-red); font-size: var(--fs-75); }
+.project-warn { margin: 0; color: var(--df-amber); font-size: var(--fs-75); }
+.project-actions { display: flex; align-items: center; gap: 8px; margin-top: 6px; }
+.command-button.primary { background: var(--df-amber-dim); border-color: var(--df-amber); color: var(--df-text-1); }
+.project-pick { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.project-pick-hint { color: var(--df-text-muted); font-size: var(--fs-50); }
+.project-recent label, .project-manual summary { color: var(--df-text-muted); font: 600 var(--fs-50)/1 var(--font-sans); letter-spacing: var(--ls-label); text-transform: uppercase; }
+.project-recent-list { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; }
+.project-recent-item { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.project-manual { border: 1px solid var(--df-line); border-radius: var(--radius); padding: 6px 8px; display: grid; gap: 6px; }
+.project-manual summary { cursor: pointer; }
+
+/* In-app folder browser (explorer) */
+.project-browser { border: 1px solid var(--df-line); border-radius: var(--radius); background: var(--df-bg-sunken); display: grid; gap: 0; overflow: hidden; }
+.pb-bar { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-bottom: 1px solid var(--df-line); }
+.pb-up { flex: 0 0 auto; }
+.pb-crumbs { display: flex; align-items: center; flex-wrap: wrap; gap: 2px; min-width: 0; overflow: hidden; }
+.pb-crumb { background: transparent; border: 0; color: var(--df-cyan); font-family: var(--font-mono); font-size: var(--fs-75); cursor: pointer; padding: 1px 3px; border-radius: 3px; }
+.pb-crumb:hover { background: var(--df-panel); color: var(--df-text-1); }
+.pb-sep { color: var(--df-text-muted); }
+.pb-list { max-height: 280px; overflow-y: auto; padding: 6px; display: grid; gap: 2px; align-content: start; }
+.pb-drives { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 4px; padding-bottom: 6px; border-bottom: 1px dashed var(--df-line); }
+/* min-height is required: as a CSS Grid auto-row child, a button whose overflow
+   is non-visible gets an automatic minimum size of 0 (CSS Sizing §
+   "automatic minimum size"), so without it the row collapses to near-zero
+   instead of its padding + line-height — truncation lives on the inner
+   .pb-item-name span, never directly on the grid item, for the same reason. */
+.pb-item { display: flex; align-items: center; gap: 7px; min-height: 28px; width: 100%; text-align: left; background: transparent; border: 1px solid transparent; border-radius: var(--radius); color: var(--df-text-1); font-size: var(--fs-75); line-height: var(--lh-ui); padding: 5px 8px; cursor: pointer; }
+.pb-item:hover { background: var(--df-panel); border-color: var(--df-line); }
+.pb-item-icon { flex: 0 0 auto; }
+.pb-item-name { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pb-drive { width: auto; font-family: var(--font-mono); }
+.pb-empty { color: var(--df-text-muted); font-size: var(--fs-75); padding: 8px; }
+.pb-foot { display: flex; align-items: center; gap: 8px; padding: 7px 8px; border-top: 1px solid var(--df-line); }
+.pb-here { color: var(--df-text-muted); font-size: var(--fs-50); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.pb-here code { font-family: var(--font-mono); color: var(--df-text-2); }
+.pb-ok { color: var(--df-amber); }
 
 .kanban { display: grid; grid-template-columns: repeat(auto-fit, minmax(205px, 1fr)); gap: 9px; }
 .kcol { padding: 9px; background: var(--df-bg-sunken); }

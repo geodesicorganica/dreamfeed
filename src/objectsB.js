@@ -64,7 +64,7 @@ function adaptReviews(repoRoot, thresholds, today) {
   }
 
   for (const abs of files) {
-    const f = parseFile(abs);
+    const f = parseFile(abs, repoRoot);
     const rel = f.path;
     if (f.error) { errors.push({ path: rel, error: f.error }); continue; }
     const fm = f.frontmatter || {};
@@ -137,7 +137,7 @@ function adaptLearningSignals(repoRoot, thresholds, today) {
   try { files = discoverGovernanceFiles(repoRoot); } catch (err) { errors.push({ path: 'agents/', error: String(err.message || err) }); }
 
   for (const abs of files) {
-    const f = parseFile(abs);
+    const f = parseFile(abs, repoRoot);
     if (f.error) continue;
     const rel = f.path;
     const fm = f.frontmatter || {};

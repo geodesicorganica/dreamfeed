@@ -4,6 +4,12 @@
 
 let state = null;
 let repoHealth = null;
+let project = null;
+// In-memory action token (D28 local guard). Read from the /api/project
+// descriptor and sent as the X-Dreamfeed-Token header on state-changing calls.
+// Held in memory only — never written to any browser-side persistent store.
+let actionToken = null;
+let browse = null; // in-app folder browser state: { path, parent, atRoot, entries, drives }
 let objectRegistry = new Map();
 let evidenceRequestId = 0;
 const view = {
@@ -186,10 +192,19 @@ async function openEvidence(path, objectId) {
   view.selectedObjectId = id;
   view.inspectorOpen = true;
   view.inspectorTab = 'evidence';
+  // Without a current root token the stale-root guard cannot protect the read
+  // (the path could resolve against a different project). Refuse rather than
+  // risk a wrong-project read.
+  if (!state || !state.rootToken) {
+    view.evidence = { path, loading: false, error: 'Project state not loaded — Refresh before viewing source.' };
+    render(); return;
+  }
   view.evidence = { path, loading: true, content: null, meta: null, error: null };
   render();
   try {
-    const response = await fetch('/api/file?path=' + encodeURIComponent(path), { cache: 'no-store' });
+    // Always carry the active root token so the server rejects a read whose path
+    // came from a now-stale project snapshot (vs. resolving it against a new root).
+    const response = await fetch('/api/file?path=' + encodeURIComponent(path) + '&token=' + encodeURIComponent(state.rootToken), { cache: 'no-store' });
     const data = await response.json();
     if (requestId !== evidenceRequestId || view.evidence?.path !== path) return;
     view.evidence = data.error ? { path, loading: false, error: data.error } : { path, loading: false, content: data.content, meta: `${data.size} bytes · modified ${data.modified} · GET-only` };
@@ -269,7 +284,10 @@ function renderOverview() {
   const auditList = `<div class="okv"><span>result</span><b>${esc(audit.everRun ? audit.overall || 'unknown' : 'never run')}</b></div><div class="okv"><span>currency</span><b>${esc(audit.everRun ? audit.freshness || 'unknown' : 'never run')}</b></div><div class="okv"><span>last run</span><b>${esc(audit.lastRunLabel || 'not yet run')}</b></div>`;
   const staleList = stale.length ? `<ul class="olist">${stale.map((s) => `<li data-object-id="source:${esc(s.path)}">${pill('stale', 'red')} ${esc(s.path)}</li>`).join('')}</ul>` : '<p class="odim">No stale source files.</p>';
   const next = [...approvals.map((o) => `Review ${fieldValue(o.id, fieldValue(o.title, 'approval'))}`), ...blockers.map((o) => `Unblock ${fieldValue(o.rank)}: ${fieldValue(o.action).slice(0, 70)}`)];
-  return `<div class="banner">Dashboard lens — decisions and blockers first. Source state read ${esc(state.generatedAt)}. Controls are non-persistent; no cockpit configuration is written.</div>${strip}<div class="owidgets">${owidget(`Approvals — founder action (${approvals.length})`, 'queue', approvalsList)}${owidget(`Blockers (${blockers.length})`, 'board', blockersList)}</div><div class="owidgets">${owidget('Active goals', 'board', `<ul class="olist">${active.map((o) => `<li data-object-id="${esc(initiativeId(o))}">${pill('active', 'blue')} ${esc(fieldValue(o.name))} ${freshChip(o.freshness)}</li>`).join('') || '<li class="odim">No active initiatives.</li>'}</ul>`)}${owidget('Repo health', 'health', healthList, health.inspectedAt || '')}${owidget('Validation / audit', 'health', auditList, audit.lastRun || 'never run')}${owidget(`Stale surfaces (${stale.length})`, 'sources', staleList)}</div>${owidget('Next actions', 'queue', next.length ? `<ol class="olist onum">${next.slice(0, 8).map((n) => `<li>${esc(n)}</li>`).join('')}</ol>` : '<p class="odim">Nothing requires founder action right now.</p>')}`;
+  const switched = state.isDefaultRoot === false;
+  const noObjects = !state.strategicInitiatives.length && !state.workItems.length && !state.approvals.length;
+  const projBanner = switched ? `<div class="banner banner-warn">Viewing switched project${project && project.currentRoot ? ` — <code>${esc(project.currentRoot)}</code>` : ''}. ${noObjects ? 'No governance objects resolved here — this folder may not use the Stakeport governance layout. Use the Sources lens or the read-only file viewer to inspect it.' : 'Source state is read from this project; reset restores the default.'}</div>` : '';
+  return `${projBanner}<div class="banner">Dashboard lens — decisions and blockers first. Source state read ${esc(state.generatedAt)}. Controls are non-persistent; no cockpit configuration is written.</div>${strip}<div class="owidgets">${owidget(`Approvals — founder action (${approvals.length})`, 'queue', approvalsList)}${owidget(`Blockers (${blockers.length})`, 'board', blockersList)}</div><div class="owidgets">${owidget('Active goals', 'board', `<ul class="olist">${active.map((o) => `<li data-object-id="${esc(initiativeId(o))}">${pill('active', 'blue')} ${esc(fieldValue(o.name))} ${freshChip(o.freshness)}</li>`).join('') || '<li class="odim">No active initiatives.</li>'}</ul>`)}${owidget('Repo health', 'health', healthList, health.inspectedAt || '')}${owidget('Validation / audit', 'health', auditList, audit.lastRun || 'never run')}${owidget(`Stale surfaces (${stale.length})`, 'sources', staleList)}</div>${owidget('Next actions', 'queue', next.length ? `<ol class="olist onum">${next.slice(0, 8).map((n) => `<li>${esc(n)}</li>`).join('')}</ol>` : '<p class="odim">Nothing requires founder action right now.</p>')}`;
 }
 function renderBoard() {
   const errors = state.parseErrors.length ? `<div class="cards">${state.parseErrors.map((e) => `<article class="card error-card"><div class="card-title">Parse error</div><div class="src">${esc(e.path)} · ${esc(e.error)}</div></article>`).join('')}</div>` : '<p class="odim">No parse errors.</p>';
@@ -470,22 +488,196 @@ function wireDynamic() {
 function goTab(tab) { view.tab = tab; view.filterStatus = ''; view.graphSel = null; view.sidebarOpen = false; feedback(`Switched to ${tabLens(tab)} lens: ${tab}`); render(); }
 function goLens(lens) { const spec = LENS_REGISTRY[lens]; if (!spec) return; view.tab = spec.defaultTab; view.filterStatus = ''; view.sidebarOpen = false; if (spec.inspectorMode) { view.inspectorOpen = true; view.inspectorTab = spec.inspectorMode; } feedback(`Lens selected: ${lens}`); render(); }
 
-async function load() {
+async function load(attempt = 0) {
   const button = $('#refreshBtn'); button.disabled = true; button.textContent = 'Refreshing…'; $('#loadMeta').textContent = 'refreshing source-backed state…';
   try {
     state = await (await fetch('/api/state', { cache: 'no-store' })).json();
     try { repoHealth = await (await fetch('/api/repo-health', { cache: 'no-store' })).json(); } catch (err) { repoHealth = { fatal: String(err) }; }
-    buildObjectRegistry(); feedback('Source-backed state refreshed'); render();
+    try {
+      project = await (await fetch('/api/project', { cache: 'no-store' })).json();
+      if (project && project.actionToken) actionToken = project.actionToken;
+    } catch (err) { project = null; }
+    // Token coherence: state and repo-health are separate fetches. If the active
+    // project changed between them, their root tokens differ — re-run rather than
+    // render objects from one root with repo health from another.
+    if (attempt < 2 && repoHealth && !repoHealth.fatal && repoHealth.rootToken && state.rootToken && repoHealth.rootToken !== state.rootToken) {
+      return load(attempt + 1);
+    }
+    buildObjectRegistry(); updateProjectLabel(); feedback('Source-backed state refreshed'); render();
   } catch (err) {
     $('#main').innerHTML = `<article class="card error-card"><div class="card-title">Load failed</div><pre class="evidence-content">${esc(String(err))}</pre></article>`;
   } finally { button.disabled = false; button.textContent = 'Refresh'; }
+}
+
+// ---------------------------------------------------------------------------
+// Project switcher. One active project per server; selection is server-side and
+// survives reload/restart. No browser storage is used (V1 non-persistent UI).
+// ---------------------------------------------------------------------------
+function updateProjectLabel() {
+  const el = $('#projectLabel'); if (!el) return;
+  if (!project) { el.textContent = 'default'; el.title = ''; return; }
+  el.textContent = project.isDefault ? 'default' : (project.label || 'project');
+  el.title = project.currentRoot || '';
+  const btn = $('#projectBtn'); if (btn) btn.classList.toggle('switched', !project.isDefault);
+}
+// Guarded fetch for state-changing/sensitive actions: carries the in-memory
+// action token as a custom header (forces a CORS preflight cross-origin, which
+// the server rejects). Never a query param; never browser storage.
+async function guardedFetch(url) {
+  let res = await fetch(url, { cache: 'no-store', headers: actionToken ? { 'X-Dreamfeed-Token': actionToken } : {} });
+  // A 403 may mean the bootstrap token was missing/stale (e.g. the initial
+  // descriptor fetch failed). Re-fetch the token once and retry before surfacing
+  // an opaque permission error.
+  if (res.status === 403) {
+    try {
+      const d = await (await fetch('/api/project', { cache: 'no-store' })).json();
+      if (d && d.actionToken && d.actionToken !== actionToken) {
+        actionToken = d.actionToken;
+        res = await fetch(url, { cache: 'no-store', headers: { 'X-Dreamfeed-Token': actionToken } });
+      }
+    } catch (err) { /* fall through with the original 403 */ }
+  }
+  return res;
+}
+function renderRecent() {
+  const wrap = $('#projectRecentWrap'); const list = $('#projectRecentList');
+  if (!wrap || !list) return;
+  const recent = (project && project.recent) || [];
+  if (!recent.length) { wrap.hidden = true; list.innerHTML = ''; return; }
+  wrap.hidden = false;
+  list.innerHTML = recent.map((r) => `<button type="button" class="command-button project-recent-item" data-recent="${esc(r.path)}" title="${esc(r.path)}">${esc(r.label)}</button>`).join('');
+  list.querySelectorAll('[data-recent]').forEach((el) => el.addEventListener('click', () => setProject(el.dataset.recent)));
+}
+
+// In-app folder browser (the explorer). Navigation only — opening a folder as the
+// project is the explicit "Open this folder" action (single commit path).
+function crumbSegments(p) {
+  const sep = p.includes('\\') ? '\\' : '/';
+  const norm = p.replace(/[\\/]+$/, '');
+  const parts = norm.split(sep);
+  const segs = []; let acc = '';
+  parts.forEach((part, i) => {
+    if (i === 0) acc = part === '' ? sep : (part.endsWith(':') ? part + sep : part);
+    else acc = (acc.endsWith(sep) ? acc : acc + sep) + part;
+    segs.push({ label: part || sep, path: acc });
+  });
+  return segs;
+}
+function browseError(msg) {
+  const errEl = $('#projectError'); const listEl = $('#pbList');
+  if (listEl) listEl.innerHTML = `<div class="pb-empty">${esc(msg)}</div>`;
+  if (errEl) { errEl.textContent = msg; errEl.hidden = false; }
+}
+async function browseTo(p) {
+  try {
+    const res = await guardedFetch('/api/dirs?path=' + encodeURIComponent(p || ''));
+    if (res.status === 404) {
+      // The /api/dirs route is missing — the running server predates it. Static
+      // files are read from disk per request, but routes need a process restart.
+      browseError('Folder browsing route not found — restart the cockpit server (stop it and run "npm start" again), then reopen this dialog.');
+      return;
+    }
+    let data;
+    try { data = await res.json(); }
+    catch { browseError(`Unexpected response (HTTP ${res.status}) from /api/dirs — restart the server and hard-refresh.`); return; }
+    if (data.error) { browseError(data.error); return; }
+    const errEl = $('#projectError'); if (errEl) errEl.hidden = true;
+    browse = data;
+    renderBrowser();
+  } catch (err) {
+    browseError(String(err && err.message || err));
+  }
+}
+function renderBrowser() {
+  const crumbsEl = $('#pbCrumbs'); const listEl = $('#pbList'); const hereEl = $('#pbHere'); const upEl = $('#pbUp');
+  if (!crumbsEl || !listEl || !browse) return;
+  crumbsEl.innerHTML = crumbSegments(browse.path).map((s) =>
+    `<button type="button" class="pb-crumb" data-crumb="${esc(s.path)}" title="${esc(s.path)}">${esc(s.label)}</button>`).join('<span class="pb-sep">›</span>');
+  const drives = (browse.drives || []).map((d) =>
+    `<button type="button" class="pb-item pb-drive" data-dir="${esc(d)}"><span class="pb-item-icon">💽</span><span class="pb-item-name">${esc(d)}</span></button>`).join('');
+  const folders = browse.entries.length
+    ? browse.entries.map((e) => `<button type="button" class="pb-item" data-dir="${esc(e.path)}" title="${esc(e.path)}"><span class="pb-item-icon">📁</span><span class="pb-item-name">${esc(e.name)}</span></button>`).join('')
+    : '<div class="pb-empty">No subfolders.</div>';
+  listEl.innerHTML = (drives ? `<div class="pb-drives">${drives}</div>` : '') + folders;
+  hereEl.innerHTML = `Open <code>${esc(browse.path)}</code>${browse.looksLikeRepo ? ' <span class="pb-ok">· looks like a governance repo</span>' : ''}`;
+  upEl.disabled = !browse.parent;
+  crumbsEl.querySelectorAll('[data-crumb]').forEach((el) => el.addEventListener('click', () => browseTo(el.dataset.crumb)));
+  listEl.querySelectorAll('[data-dir]').forEach((el) => el.addEventListener('click', () => browseTo(el.dataset.dir)));
+}
+function openProjectDialog() {
+  const dlg = $('#projectDialog'); if (!dlg) return;
+  $('#projectDialogCurrent').textContent = project ? project.currentRoot : '—';
+  $('#projectPath').value = project && !project.isDefault ? project.currentRoot : '';
+  // Native picker is the primary action when the server reports it available.
+  const native = !!(project && project.pickers && project.pickers.native);
+  $('#projectSelectFolder').hidden = !native;
+  $('#projectSelectHint').hidden = !native;
+  renderRecent();
+  // Start the in-app explorer at the active project folder.
+  browse = null; $('#pbList').innerHTML = '<div class="pb-empty">Loading…</div>';
+  browseTo(project ? project.currentRoot : '');
+  const errEl = $('#projectError'); errEl.hidden = true; errEl.textContent = '';
+  const warnEl = $('#projectWarn');
+  const warn = project && (
+    project.restoreWarning
+    || (project.persistWarning ? `Not saved for next launch (${project.persistWarning}) — the project will revert to default on restart.` : '')
+    || (!project.isDefault && !project.looksLikeRepo ? 'This folder has no agents/ or CLAUDE.md — it may not be a governance repo.' : '')
+  );
+  if (warn) { warnEl.textContent = warn; warnEl.hidden = false; } else { warnEl.hidden = true; }
+  if (typeof dlg.showModal === 'function') { if (!dlg.open) dlg.showModal(); } else dlg.setAttribute('open', '');
+}
+function closeProjectDialog() {
+  const dlg = $('#projectDialog'); if (!dlg) return;
+  if (typeof dlg.close === 'function' && dlg.open) dlg.close(); else dlg.removeAttribute('open');
+}
+async function selectFolder() {
+  const errEl = $('#projectError'); const btn = $('#projectSelectFolder');
+  if (btn) { btn.disabled = true; btn.textContent = 'Opening picker…'; }
+  try {
+    const res = await guardedFetch('/api/select-folder');
+    const data = await res.json();
+    if (data && data.path) { await setProject(data.path); return; }
+    if (data && data.cancelled) { feedback('Folder selection cancelled — project unchanged'); return; }
+    if (errEl && data && data.error) { errEl.textContent = data.error; errEl.hidden = false; }
+  } catch (err) {
+    if (errEl) { errEl.textContent = String(err); errEl.hidden = false; }
+  } finally { if (btn) { btn.disabled = false; btn.textContent = 'Select folder…'; } }
+}
+async function setProject(pathValue) {
+  const errEl = $('#projectError');
+  const target = pathValue || (project && project.default) || '';
+  try {
+    const res = await guardedFetch('/api/project?root=' + encodeURIComponent(target));
+    const data = await res.json();
+    if (data.error) { if (errEl) { errEl.textContent = data.error; errEl.hidden = false; } return false; }
+    project = data;
+    if (data.actionToken) actionToken = data.actionToken;
+    // A new project invalidates any selection/evidence from the previous one.
+    view.selectedObjectId = null; view.evidence = null; view.graphSel = null;
+    feedback(`Switched project: ${data.isDefault ? 'default' : data.currentRoot}`);
+    if (data.persistWarning) feedback(`Note: project not saved for next launch — ${data.persistWarning}`);
+    closeProjectDialog();
+    await load();
+    return true;
+  } catch (err) {
+    if (errEl) { errEl.textContent = String(err); errEl.hidden = false; }
+    return false;
+  }
 }
 function bindShell() {
   $('#tabs').addEventListener('click', (event) => { const button = event.target.closest('button[data-tab]'); if (button) goTab(button.dataset.tab); });
   $('#filterText').addEventListener('input', (event) => { view.filterText = event.target.value; render(); });
   $('#filterStatus').addEventListener('change', (event) => { view.filterStatus = event.target.value; render(); });
   $('#lensControl').addEventListener('change', (event) => goLens(event.target.value));
-  $('#refreshBtn').addEventListener('click', load);
+  $('#refreshBtn').addEventListener('click', () => load());
+  $('#projectBtn').addEventListener('click', openProjectDialog);
+  $('#pbUp').addEventListener('click', () => { if (browse && browse.parent) browseTo(browse.parent); });
+  $('#pbUse').addEventListener('click', () => { if (browse) setProject(browse.path); });
+  $('#projectSelectFolder').addEventListener('click', selectFolder);
+  $('#projectSwitch').addEventListener('click', () => setProject($('#projectPath').value.trim()));
+  $('#projectReset').addEventListener('click', () => setProject(''));
+  $('#projectCancel').addEventListener('click', closeProjectDialog);
+  $('#projectPath').addEventListener('keydown', (event) => { if (event.key === 'Enter') { event.preventDefault(); setProject($('#projectPath').value.trim()); } });
   $('#densityBtn').addEventListener('click', () => { view.density = view.density === 'comfortable' ? 'compact' : 'comfortable'; feedback(`Density set to ${view.density}`); render(); });
   $('#inspectorToggle').addEventListener('click', () => { view.inspectorOpen = !view.inspectorOpen; feedback(`Inspector ${view.inspectorOpen ? 'shown' : 'hidden'}`); render(); });
   $('#bottomToggle').addEventListener('click', () => { view.bottomOpen = !view.bottomOpen; feedback(`Validation panel ${view.bottomOpen ? 'shown' : 'hidden'}`); render(); });

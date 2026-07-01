@@ -48,7 +48,7 @@ function buildTopology(repoRoot = REPO_ROOT) {
 
   const defFiles = discoverDefinitionFiles(repoRoot);
   for (const d of defFiles) {
-    const f = parseFile(d.file);
+    const f = parseFile(d.file, repoRoot);
     const rel = f.path;
     // Canonical Repo Inventory: path-derived node (read directly from the filesystem path).
     repoInventory.push({

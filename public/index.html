@@ -68,6 +68,12 @@
           <option value="Topology">Topology</option>
         </select>
       </label>
+      <div class="compact-control project-control">
+        <span>Project</span>
+        <button type="button" class="command-button project-button" id="projectBtn" title="Switch the project folder this cockpit reads">
+          <span id="projectLabel">default</span>
+        </button>
+      </div>
       <div class="command-spacer"></div>
       <button type="button" class="command-button" id="refreshBtn" title="Re-read source-backed state">Refresh</button>
       <button type="button" class="command-button" id="densityBtn" title="Toggle density">Density: comfortable</button>
@@ -88,6 +94,53 @@
       <div class="bottom-loading">Loading validation traces…</div>
     </section>
   </div>
+
+  <dialog id="projectDialog" class="project-dialog" aria-label="Switch project">
+    <div class="project-form">
+      <h2>Switch project</h2>
+      <p class="project-current">Active: <code id="projectDialogCurrent">—</code></p>
+
+      <div class="project-browser" id="projectBrowser">
+        <div class="pb-bar">
+          <button type="button" class="command-button pb-up" id="pbUp" title="Up one folder">↑ Up</button>
+          <div class="pb-crumbs" id="pbCrumbs" aria-label="Current folder path"></div>
+        </div>
+        <div class="pb-list" id="pbList" role="listbox" aria-label="Subfolders"></div>
+        <div class="pb-foot">
+          <span class="pb-here" id="pbHere"></span>
+          <span class="command-spacer"></span>
+          <button type="button" class="command-button primary" id="pbUse">Open this folder</button>
+        </div>
+      </div>
+
+      <div class="project-recent" id="projectRecentWrap" hidden>
+        <label>Recent projects</label>
+        <div id="projectRecentList" class="project-recent-list"></div>
+      </div>
+
+      <div class="project-pick">
+        <button type="button" class="command-button" id="projectSelectFolder" hidden>Use system dialog…</button>
+        <span class="project-pick-hint" id="projectSelectHint" hidden>Opens the OS folder picker as an alternative.</span>
+      </div>
+
+      <details class="project-manual" id="projectManual">
+        <summary>Type a path instead</summary>
+        <label for="projectPath">Absolute path to a local project folder</label>
+        <input id="projectPath" type="text" autocomplete="off" spellcheck="false" placeholder="Absolute path to a local project folder" />
+        <button type="button" class="command-button" id="projectSwitch">Switch to typed path</button>
+      </details>
+
+      <p class="project-hint">The cockpit reads this folder's governance files, topology, and git state. Read-only and localhost-only. One project is active per server (shared by all tabs).</p>
+      <p id="projectError" class="project-error" hidden></p>
+      <p id="projectWarn" class="project-warn" hidden></p>
+      <div class="project-actions">
+        <button type="button" class="command-button" id="projectReset">Reset to default</button>
+        <span class="command-spacer"></span>
+        <button type="button" class="command-button" id="projectCancel">Close</button>
+      </div>
+    </div>
+  </dialog>
+
   <script src="/app.js"></script>
 </body>
 </html>
