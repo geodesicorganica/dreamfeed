@@ -85,7 +85,6 @@ test('readRepoFile: containment is computed against the active root', () => {
     const ok = server.readRepoFile('agents/founder/outputs/strategic_initiatives.md', root);
     assert.ok(!ok.error, `expected a read, got ${ok.error}`);
     assert.ok(server.readRepoFile('../escape.md', root).error, 'traversal rejected against active root');
-    assert.ok(server.readRepoFile('agents/founder/outputs/strategic_initiatives.md').path, 'default root still reads the Stakeport repo');
   } finally { rmrf(root); }
 });
 
@@ -181,7 +180,7 @@ test('/api/project (authorized) switches to a valid folder and rejects an invali
     const stStill = await (await fetch(base + '/api/state')).json();
     assert.strictEqual(stStill.rootToken, ok.rootToken, 'a rejected switch leaves the active root unchanged');
 
-    await switchTo(REPO_ROOT, { 'X-Dreamfeed-Token': token }); // reset to default
+    server._resetForTest(); // reset to no-project state
   } finally { rmrf(root); }
 });
 
@@ -196,7 +195,7 @@ test('action guard: tokenless and cross-site switches are rejected; missing Orig
     // valid token, no Origin/Referer header (node fetch omits them) → accepted
     const ok = await switchTo(root, { 'X-Dreamfeed-Token': token });
     assert.strictEqual(ok.status, 200, 'authorized switch without Origin/Referer succeeds');
-    await switchTo(REPO_ROOT, { 'X-Dreamfeed-Token': token });
+    server._resetForTest();
   } finally { rmrf(root); }
 });
 
@@ -228,11 +227,12 @@ test('localRequestGuard: host allowlist (incl. [::1]), port match, optional orig
   assert.ok(!ok({ host: 'localhost:abc' }), 'malformed host (non-numeric port) rejected');
 });
 
-test('isDefaultRoot: the realpath-canonicalized default is still recognized as default', () => {
-  // Regression: state must use canonical identity, not raw string equality, so a
-  // reset-to-default (which stores canonicalRoot(REPO_ROOT)) is not mislabeled.
-  const st = buildState({ repoRoot: canonicalRoot(REPO_ROOT) });
-  assert.strictEqual(st.isDefaultRoot, true, 'canonicalized default root reads as default');
+test('no-project: emptyState has array fields + configured:false', async () => {
+  server._resetForTest();
+  const st = await (await fetch(base + '/api/state')).json();
+  assert.strictEqual(st.configured, false);
+  assert.ok(Array.isArray(st.strategicInitiatives));
+  assert.ok(typeof st.generatedAt === 'string');
 });
 
 test('native picker is disabled under the DREAMFEED_NO_NATIVE backstop', () => {
@@ -270,7 +270,7 @@ test('picker adapter: fake provider returns a path; cancel leaves project unchan
     const sw = await (await switchTo(root, { 'X-Dreamfeed-Token': token })).json();
     assert.strictEqual(sw.isDefault, false, 'separate commit switched the project');
     assert.notStrictEqual(before, sw.currentRoot, 'select-folder alone did not change currentRoot');
-    await switchTo(REPO_ROOT, { 'X-Dreamfeed-Token': token });
+    server._resetForTest();
   } finally { restore(); rmrf(root); }
 });
 
@@ -295,7 +295,7 @@ test('recent projects: a successful switch lists the prior project, capped/dedup
     const recentPaths = (afterB.recent || []).map((r) => r.path.toLowerCase());
     assert.ok(recentPaths.includes(canonicalRoot(a).toLowerCase()), 'prior project A is now recent');
     assert.ok(!recentPaths.includes(canonicalRoot(REPO_ROOT).toLowerCase()), 'default is never listed as recent');
-    await switchTo(REPO_ROOT, { 'X-Dreamfeed-Token': token });
+    server._resetForTest();
   } finally { rmrf(a); rmrf(b); }
 });
 
@@ -307,10 +307,10 @@ test('startup-restore: an unavailable saved project falls back to default with a
   try {
     fs.writeFileSync(cfg, JSON.stringify({ root: path.join(os.tmpdir(), 'df-does-not-exist-xyz') }));
     const serverPath = path.join(CC_DIR, 'src', 'server.js');
-    const code = `const s=require(${JSON.stringify(serverPath)});const d=s.projectDescriptor();process.stdout.write(JSON.stringify({isDefault:d.isDefault,warn:!!d.restoreWarning}));`;
+    const code = `const s=require(${JSON.stringify(serverPath)});const d=s.projectDescriptor();process.stdout.write(JSON.stringify({configured:d.configured,warn:!!d.restoreWarning}));`;
     const out = execFileSync(process.execPath, ['-e', code], { encoding: 'utf8' });
     const d = JSON.parse(out);
-    assert.strictEqual(d.isDefault, true, 'falls back to the default root');
+    assert.strictEqual(d.configured, false, 'falls back to no-project state');
     assert.strictEqual(d.warn, true, 'surfaces a non-blocking restore warning');
   } finally {
     if (backup) fs.writeFileSync(cfg, backup); else fs.rmSync(cfg, { force: true });
@@ -319,7 +319,7 @@ test('startup-restore: an unavailable saved project falls back to default with a
 
 // --- git hygiene ------------------------------------------------------------
 test('git-hygiene: the persisted project sidecar is git-ignored', () => {
-  const out = execFileSync('git', ['check-ignore', 'tools/command-center/project-config.json'],
+  const out = execFileSync('git', ['check-ignore', 'project-config.json'],
     { cwd: REPO_ROOT, encoding: 'utf8', windowsHide: true });
   assert.match(out.trim(), /project-config\.json$/, 'sidecar must be ignored, never committed');
 });

@@ -3,7 +3,7 @@ const test = require('node:test');
 const assert = require('node:assert');
 const {
   extractFrontmatter, parseFrontmatterLines, detectSchemaFamily, splitRow,
-  extractTables, loadStalenessThresholds, computeFreshness, slugify,
+  extractTables, computeFreshness, slugify,
 } = require('../src/parse');
 
 // Synthetic unit fixtures only — these are test inputs, not app seed data;
@@ -57,14 +57,6 @@ test('table extraction: finds header + rows with 1-based line numbers', () => {
   assert.strictEqual(tables[0].rows[0].line, 5);
 });
 
-test('staleness thresholds load from cockpit-integration-guide.md §3 (single source of truth)', () => {
-  const t = loadStalenessThresholds();
-  assert.strictEqual(t.strategic_initiatives, 14);
-  assert.strictEqual(t.weekly_priorities, 7);
-  assert.strictEqual(t.decision_queue, 7);
-  assert.strictEqual(t.agent_dispatch, 14);
-  assert.strictEqual(t.blocked_items, 7);
-});
 
 test('freshness: fresh / amber (within 20%) / stale, and degradation (contract §10)', () => {
   const thresholds = { weekly_priorities: 7 };
@@ -84,6 +76,6 @@ test('freshness: fresh / amber (within 20%) / stale, and degradation (contract �
 });
 
 test('slugify: stable object identity', () => {
-  assert.strictEqual(slugify('Build Stakeport OS Command Center (Phase 1 — read-only cockpit)'),
-    'build-stakeport-os-command-center-phase-1-read-only-cockpit');
+  assert.strictEqual(slugify('Build Dreamfeed Command Center (Phase 1 — read-only cockpit)'),
+    'build-dreamfeed-command-center-phase-1-read-only-cockpit');
 });
