@@ -20,8 +20,17 @@ const { execFileSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 
-const REPO_ROOT = path.resolve(__dirname, '..', '..');
-const STATUS_FILE = path.join(__dirname, 'audit-status.json');
+// Standalone: APP_ROOT is this tool's own directory.
+// Project root is read from project-config.json (nullable).
+const APP_ROOT = path.resolve(__dirname);
+const PROJECT_CONFIG_FILE = path.join(APP_ROOT, 'project-config.json');
+const STATUS_FILE = path.join(APP_ROOT, 'audit-status.json');
+
+let REPO_ROOT = null;
+try {
+  const cfg = JSON.parse(fs.readFileSync(PROJECT_CONFIG_FILE, 'utf8'));
+  if (cfg && cfg.root) REPO_ROOT = cfg.root;
+} catch { /* no project configured */ }
 
 function run(label, command, args, cwd) {
   const startedWall = process.hrtime.bigint();
@@ -36,12 +45,12 @@ function run(label, command, args, cwd) {
   const durationMs = Number((process.hrtime.bigint() - startedWall) / 1000000n);
   // Capture a short tail of output for the panel (no secrets in this repo's tooling output).
   const tail = output.split(/\r?\n/).filter(Boolean).slice(-3).join(' | ').slice(0, 300);
-  return { label, command: `${command} ${args.join(' ')}`.trim(), cwd: path.relative(REPO_ROOT, cwd) || '.', status, exitCode, durationMs, tail };
+  return { label, command: `${command} ${args.join(' ')}`.trim(), cwd: path.relative(APP_ROOT, cwd) || '.', status, exitCode, durationMs, tail };
 }
 
-function gitStatusSummary() {
+function gitStatusSummary(root) {
   try {
-    const out = execFileSync('git', ['--no-optional-locks', 'status', '--porcelain=v1'], { cwd: REPO_ROOT, encoding: 'utf8', timeout: 5000, windowsHide: true });
+    const out = execFileSync('git', ['--no-optional-locks', 'status', '--porcelain=v1'], { cwd: root, encoding: 'utf8', timeout: 5000, windowsHide: true });
     const lines = out.split('\n').filter(Boolean);
     let staged = 0, unstaged = 0, untracked = 0;
     for (const l of lines) {
@@ -54,27 +63,50 @@ function gitStatusSummary() {
 }
 
 function main() {
-  const commands = [
-    run('governance frontmatter validation', 'node', ['tools/governance-migration/validate.js'], REPO_ROOT),
-    run('governance schema fixtures', 'node', ['tools/governance-migration/test-fixtures.js'], REPO_ROOT),
-    run('cockpit tests', 'node', ['--test', 'test/parse.test.js', 'test/objects.test.js', 'test/state.test.js', 'test/briefB.test.js'], __dirname),
+  // State 1: no project configured.
+  if (!REPO_ROOT) {
+    fs.writeFileSync(STATUS_FILE, JSON.stringify({
+      auditor: 'repo-harness-auditor (in-repo harness: audit.js)',
+      overall: 'unavailable', generatedAt: new Date().toISOString(),
+      repoRoot: null, commands: [], git: null,
+      unavailableReason: 'No project configured.',
+    }, null, 2) + '\n', 'utf8');
+    console.log('[repo-harness-auditor] No project configured — audit unavailable.');
+    process.exit(0);
+  }
+
+  // State 2 / 3: project configured — determine if the Stakeport harness is present.
+  const hasStakeportHarness = fs.existsSync(
+    path.join(REPO_ROOT, 'tools', 'governance-migration', 'validate.js'));
+
+  const results = [
+    run('cockpit tests', 'node', ['--test', 'test/*.test.js'], APP_ROOT),
   ];
+  if (hasStakeportHarness) {
+    results.push(
+      run('governance frontmatter validation', 'node', ['tools/governance-migration/validate.js'], REPO_ROOT),
+      run('governance schema fixtures', 'node', ['tools/governance-migration/test-fixtures.js'], REPO_ROOT),
+    );
+  }
+
+  const overall = hasStakeportHarness
+    ? (results.every(r => r.status === 'pass') ? 'pass' : 'fail')
+    : 'unavailable';
+
   const record = {
-    auditor: 'repo-harness-auditor (in-repo harness: tools/command-center/audit.js)',
+    auditor: 'repo-harness-auditor (in-repo harness: audit.js)',
     generatedAt: new Date().toISOString(),
-    // Canonical identity of the audited root (matches src/parse.js canonicalKey),
-    // so Repo Health never displays this record against a different project.
     repoRoot: require('./src/parse').canonicalKey(REPO_ROOT),
-    overall: commands.every(c => c.status === 'pass') ? 'pass' : 'fail',
-    git: gitStatusSummary(),
-    commands,
+    overall,
+    git: gitStatusSummary(REPO_ROOT),
+    commands: results,
+    ...(overall === 'unavailable' && { unavailableReason: 'No audit harness for this project.' }),
   };
   fs.writeFileSync(STATUS_FILE, JSON.stringify(record, null, 2) + '\n', 'utf8');
-  // Human-facing summary.
   console.log(`[repo-harness-auditor] overall: ${record.overall.toUpperCase()}  (${new Date(record.generatedAt).toLocaleString()})`);
-  for (const c of commands) console.log(`  ${c.status === 'pass' ? 'PASS' : 'FAIL'}  ${c.label} (exit ${c.exitCode}, ${c.durationMs}ms)`);
-  console.log(`  status written: ${path.relative(REPO_ROOT, STATUS_FILE)}`);
-  process.exit(record.overall === 'pass' ? 0 : 1);
+  for (const c of results) console.log(`  ${c.status === 'pass' ? 'PASS' : 'FAIL'}  ${c.label} (exit ${c.exitCode}, ${c.durationMs}ms)`);
+  console.log(`  status written: ${STATUS_FILE}`);
+  process.exit(overall === 'fail' ? 1 : 0);
 }
 
 if (require.main === module) main();

@@ -68,8 +68,10 @@ function windowsDrives() {
   return drives;
 }
 function listDirs(reqPath) {
-  // Default to the active project root when no path is given.
   let target = reqPath && reqPath.trim() ? reqPath : currentRoot;
+  if (!target) {
+    return { path: '', parent: null, atRoot: true, entries: [], drives: windowsDrives(), looksLikeRepo: false };
+  }
   try { target = path.resolve(target); } catch { return { error: 'invalid path' }; }
   let stat;
   try { stat = fs.statSync(target); } catch { return { error: 'path not found', path: target }; }
@@ -94,17 +96,19 @@ function listDirs(reqPath) {
   };
 }
 
-// Canonical identity of the fixed default root, computed once (realpath is a
-// syscall; the default never changes for the process lifetime).
+// Canonical identity of the app root, computed once.
 const REPO_ROOT_KEY = canonicalKey(REPO_ROOT);
-function isDefaultRoot(root) { return canonicalKey(root) === REPO_ROOT_KEY; }
+function isDefaultRoot(root) {
+  if (!root) return false;
+  return canonicalKey(root) === REPO_ROOT_KEY;
+}
 
 function sendJson(res, status, body) {
   res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
   res.end(JSON.stringify(body));
 }
 
-let currentRoot = REPO_ROOT;
+let currentRoot = null; // null = no project configured
 let restoreWarning = null;
 let recentRoots = []; // machine-local convenience only — NOT a governance object/registry.
 
@@ -116,8 +120,7 @@ function persistConfig() {
 }
 
 function rememberRecent(root) {
-  // Dedupe by canonical identity (case-insensitive on Windows); cap; default
-  // root is not listed as "recent".
+  if (!root) return;
   if (isDefaultRoot(root)) return;
   recentRoots = [root, ...recentRoots.filter((r) => canonicalKey(r) !== canonicalKey(root))].slice(0, RECENT_CAP);
 }
@@ -126,7 +129,7 @@ function rememberRecent(root) {
   let raw;
   try { raw = fs.readFileSync(PROJECT_CONFIG_FILE, 'utf8'); } catch { return; }
   let rec;
-  try { rec = JSON.parse(raw); } catch { restoreWarning = 'project-config.json unreadable; using default project'; return; }
+  try { rec = JSON.parse(raw); } catch { restoreWarning = 'project-config.json unreadable; no project configured'; return; }
   if (!rec) return;
   // Restore the recent list (validated, existing dirs only), preserving order.
   if (Array.isArray(rec.recent)) {
@@ -143,7 +146,7 @@ function rememberRecent(root) {
   if (!rec.root || isDefaultRoot(rec.root)) return;
   const v = validateRoot(rec.root);
   if (v.ok) currentRoot = v.root;
-  else restoreWarning = `saved project ${rec.root} is unavailable (${v.error}); using default project`;
+  else restoreWarning = `saved project is unavailable; no project configured`;
 })();
 
 // ---------------------------------------------------------------------------
@@ -211,25 +214,26 @@ function guardMutation(req) {
 
 function projectDescriptor(req, extra = {}) {
   const guarded = req ? localRequestGuard(req) : { ok: true };
+  const configured = currentRoot !== null;
   return {
     currentRoot,
-    rootToken: rootToken(currentRoot),
-    default: REPO_ROOT,
-    isDefault: isDefaultRoot(currentRoot),
+    configured,
+    rootToken: configured ? rootToken(currentRoot) : null,
+    default: null,      // standalone: no built-in default project
+    isDefault: false,   // retired concept; always false; kept for compat
     valid: true,
-    looksLikeRepo: looksLikeRepo(currentRoot),
-    label: path.basename(currentRoot) || currentRoot,
+    looksLikeRepo: configured ? looksLikeRepo(currentRoot) : false,
+    label: configured ? (path.basename(currentRoot) || currentRoot) : null,
     restoreWarning,
     recent: recentRoots.map((r) => ({ path: r, label: path.basename(r) || r })),
     pickers: { native: projectPicker.nativeAvailable(), providers: projectPicker.listProviders() },
-    // Token only to an HTTP request that passes the local guard — never in a raw
-    // descriptor dump (req absent).
     ...(req && guarded.ok ? { actionToken: ACTION_TOKEN } : {}),
     ...extra,
   };
 }
 
 function readRepoFile(relPath, repoRoot = currentRoot) {
+  if (!repoRoot) return { error: 'no project configured' };
   if (!relPath || typeof relPath !== 'string') return { error: 'missing path' };
   const norm = relPath.replace(/\\/g, '/');
   if (norm.includes('..')) return { error: 'path traversal rejected' };
@@ -258,10 +262,7 @@ function readRepoFile(relPath, repoRoot = currentRoot) {
 
 const PORT = process.env.DREAMFEED_PORT ? parseInt(process.env.DREAMFEED_PORT, 10) : 4173;
 const PUBLIC_DIR = path.join(__dirname, '..', 'public');
-// The Dreamfeed design system is the cockpit's OWN brand, served from the repo
-// the cockpit ships in — it is intentionally NOT re-resolved against the active
-// project root.
-const DREAMFEED_SYSTEM_DIR = path.join(REPO_ROOT, 'docs', 'dreamfeed', 'design-system');
+const DREAMFEED_SYSTEM_DIR = path.join(__dirname, '..', 'public', 'dreamfeed');
 
 const STATIC = {
   '/': { file: 'index.html', type: 'text/html; charset=utf-8' },
@@ -286,6 +287,29 @@ const STATIC = {
   '/dreamfeed/fonts/IBMPlexMono-Bold.woff2': { file: 'dreamfeed/fonts/IBMPlexMono-Bold.woff2', type: 'font/woff2' },
 };
 
+function emptyState() {
+  const now = new Date();
+  return {
+    generatedAt: now.toISOString(),
+    asOfDate: now.toISOString().slice(0, 10),
+    configured: false, readOnly: true, rootToken: null, isDefaultRoot: false,
+    ui: { alias: 'Dreamfeed', canonicalName: 'Dreamfeed Command Center' },
+    thresholdsSource: null, thresholds: {}, sources: [],
+    strategicInitiatives: [], workItems: [], approvals: [], approvalQueue: [],
+    discoveredGovernanceFiles: [],
+    topology: { nodes: [], edges: [], repoInventory: [], tally: { Canonical: 0, Derived: 0, Candidate: 0 } },
+    roadmap: [], milestones: [], reviews: [], learningSignals: [],
+    parseErrors: [],
+    counts: {
+      strategicInitiatives: 0, workItems: 0, approvalsTotal: 0, decisionApprovals: 0,
+      openDecisions: 0, dispatchGateApprovals: 0, conditionalGates: 0, pendingGates: 0,
+      approvalQueue: 0, discoveredGovernanceFiles: 0, topologyNodes: 0, topologyEdges: 0,
+      topologyCanonicalEdges: 0, topologyDerivedEdges: 0, roadmapPhases: 0,
+      milestones: 0, reviews: 0, learningSignals: 0, parseErrors: 0,
+    },
+  };
+}
+
 const server = http.createServer((req, res) => {
   if (req.method !== 'GET') {
     res.writeHead(405, { 'Content-Type': 'text/plain' });
@@ -308,10 +332,17 @@ const server = http.createServer((req, res) => {
       // Mutation: require the local action guard + X-Dreamfeed-Token.
       const g = guardMutation(req);
       if (!g.ok) { sendJson(res, g.status, { error: g.error }); return; }
+      if (rootParam === '') {
+        // Clear project: sets currentRoot = null, retires the restore warning, persists.
+        rememberRecent(currentRoot);
+        currentRoot = null;
+        restoreWarning = null;
+        persistConfig();
+        sendJson(res, 200, projectDescriptor(req));
+        return;
+      }
       const v = validateRoot(rootParam);
       if (!v.ok) { sendJson(res, 400, projectDescriptor(req, { error: v.error })); return; } // currentRoot unchanged
-      // A switch off the default lists the PRIOR active project as recent; never
-      // lists the default itself.
       rememberRecent(currentRoot);
       currentRoot = v.root;
       restoreWarning = null;
@@ -346,7 +377,7 @@ const server = http.createServer((req, res) => {
     return;
   }
   if (url === '/api/state') {
-    // Pull architecture: every request re-reads the active project's files.
+    if (!currentRoot) { sendJson(res, 200, emptyState()); return; }
     try {
       sendJson(res, 200, buildState({ repoRoot: currentRoot }));
     } catch (err) {
@@ -355,7 +386,6 @@ const server = http.createServer((req, res) => {
     return;
   }
   if (url === '/api/repo-health') {
-    // Goal C — read-only git inspection of the active project. Never mutates it.
     try {
       sendJson(res, 200, getRepoHealth(currentRoot));
     } catch (err) {
@@ -364,9 +394,7 @@ const server = http.createServer((req, res) => {
     return;
   }
   if (url === '/api/file') {
-    // Stale-root guard: the client sends the rootToken from the state snapshot
-    // the path came from. A mismatch means the project changed under it — reject
-    // rather than resolve an old relative path against the new root.
+    if (!currentRoot) { sendJson(res, 409, { error: 'no project configured' }); return; }
     const token = params.get('token');
     const tok = rootToken(currentRoot);
     if (token !== null && token !== tok) {
@@ -392,8 +420,8 @@ const server = http.createServer((req, res) => {
 
 if (require.main === module) {
   server.listen(PORT, '127.0.0.1', () => {
-    console.log(`Dreamfeed (Stakeport OS Command Center — Operational Core) on http://127.0.0.1:${PORT}/ — localhost-only, read-only.`);
-    console.log(`Active project: ${currentRoot}${isDefaultRoot(currentRoot) ? ' (default)' : ''}`);
+    console.log(`Dreamfeed Command Center on http://127.0.0.1:${PORT}/ — localhost-only, read-only.`);
+    console.log(currentRoot ? `Active project: ${currentRoot}` : 'No project configured — open the app and use the Project button to select a folder.');
     if (restoreWarning) console.log(`Note: ${restoreWarning}`);
   });
 }
@@ -406,5 +434,5 @@ module.exports = {
   _getCurrentRoot: () => currentRoot,
   _setCurrentRoot: (r) => { currentRoot = r; },
   _getRecent: () => recentRoots.slice(),
-  _resetForTest: () => { currentRoot = REPO_ROOT; recentRoots = []; restoreWarning = null; },
+  _resetForTest: () => { currentRoot = null; recentRoots = []; restoreWarning = null; },
 };

@@ -8,7 +8,8 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 
-const REPO_ROOT = path.resolve(__dirname, '..', '..', '..');
+const APP_ROOT = path.resolve(__dirname, '..');
+const REPO_ROOT = APP_ROOT; // backward-compat export alias
 
 // ---------------------------------------------------------------------------
 // Root identity (project switching). The canonical root is resolved through

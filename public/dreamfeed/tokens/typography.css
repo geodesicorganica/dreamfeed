@@ -1,0 +1,68 @@
+/* Dreamfeed typography tokens.
+   IBM Plex Mono  -> source-backed operational data (command, path, ID, timestamp, schema, logs).
+   IBM Plex Sans  -> structural labels, region headers, navigation, spatial orientation.
+   Rules from brand-guidelines.md:
+   - No weights below 400 on persistent UI text.
+   - Line height 140%-150% on multi-line operational text / code / tables.
+   - No viewport-scaled type, no negative letter-spacing.
+   - Slashed zero + disambiguated homoglyphs on monospace surfaces. */
+
+:root {
+  --font-mono: 'IBM Plex Mono', ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  --font-sans: 'IBM Plex Sans', system-ui, -apple-system, 'Segoe UI', sans-serif;
+
+  /* slashed zero + disambiguated glyphs for operational mono surfaces */
+  --mono-features: 'zero' 1, 'ss01' 1, 'ss02' 1, 'cv01' 1; /* @kind font */
+
+  /* ---- Type scale (px; restrained, dense) ---- */
+  --fs-50: 11px;   /* micro labels / chip text — keep legible at default zoom */
+  --fs-75: 12px;   /* dense table / log text */
+  --fs-100: 13px;  /* base operational body */
+  --fs-200: 14px;  /* default UI body / labels */
+  --fs-300: 16px;  /* emphasized body / sub-headers */
+  --fs-400: 18px;  /* region titles */
+  --fs-500: 22px;  /* section headers */
+  --fs-600: 28px;  /* view titles */
+  --fs-700: 36px;  /* page / hero titles (rare; not viewport-scaled) */
+
+  /* ---- Weights (>= 400 only) ---- */
+  --fw-regular: 400; /* @kind font */
+  --fw-medium: 500; /* @kind font */
+  --fw-semibold: 600; /* @kind font */
+  --fw-bold: 700; /* @kind font */
+
+  /* ---- Line height ---- */
+  --lh-tight: 1.2;    /* @kind font */
+  --lh-ui: 1.4;       /* @kind font */
+  --lh-read: 1.5;     /* @kind font */
+
+  /* ---- Letter spacing (never negative) ---- */
+  --ls-label: 0.04em;   /* @kind font */
+  --ls-caps: 0.08em;    /* @kind font */
+  --ls-normal: 0; /* @kind font */
+
+  /* ---- Tabular numerals for aligned operational data ---- */
+  --num-tabular: tabular-nums; /* @kind font */
+
+  /* ---- Semantic role aliases ---- */
+  --text-overline: var(--fs-50);
+  --text-body: var(--fs-200);
+  --text-data: var(--fs-100);
+  --text-region-title: var(--fs-400);
+}
+
+/* Convenience role classes (optional — tokens are the contract) */
+.df-mono {
+  font-family: var(--font-mono);
+  font-feature-settings: var(--mono-features);
+  font-variant-numeric: var(--num-tabular);
+}
+.df-sans { font-family: var(--font-sans); }
+.df-overline {
+  font-family: var(--font-sans);
+  font-size: var(--fs-50);
+  font-weight: var(--fw-semibold);
+  letter-spacing: var(--ls-caps);
+  text-transform: uppercase;
+  color: var(--text-muted);
+}

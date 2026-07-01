@@ -39,23 +39,16 @@ function ageLabel(iso, now) {
 const AUDIT_WORKFLOW = {
   skill: 'repo-harness-auditor',
   skillPurpose: 'read-only agentic-SDLC / repo-readiness audit (run via the repo-harness-auditor skill)',
-  harness: 'node tools/command-center/audit.js',
+  harness: 'node audit.js',
   harnessPurpose: 'concrete read-only check harness (governance validators + cockpit tests + git snapshot) — writes audit-status.json that this panel reads',
 };
 
-function readAudit(now, lastCommitIso, clean, repoRoot, auditConfigured) {
-  // The audit harness (audit.js) only knows how to audit the Stakeport repo this
-  // cockpit ships in. For any other project, no harness is configured — show git
-  // health only, never a foreign repo's audit record (review finding).
+function readAudit(now, lastCommitIso, clean, repoRoot, auditConfigured, sidecar) {
   if (!auditConfigured) return { everRun: false, auditConfigured: false, workflow: AUDIT_WORKFLOW };
-  let raw;
-  try { raw = fs.readFileSync(AUDIT_STATUS_FILE, 'utf8'); }
-  catch { return { everRun: false, auditConfigured: true, workflow: AUDIT_WORKFLOW }; }
-  let rec;
-  try { rec = JSON.parse(raw); } catch (err) { return { everRun: false, auditConfigured: true, parseError: String(err.message || err), workflow: AUDIT_WORKFLOW }; }
+  if (!sidecar) return { everRun: false, auditConfigured: true, workflow: AUDIT_WORKFLOW };
+  const rec = sidecar;
 
-  // Defensive: if the sidecar was stamped for a different root than the active
-  // one, do not display it against this project.
+  // Defensive: if the sidecar was stamped for a different root, do not display it.
   if (rec.repoRoot && repoRoot && rec.repoRoot !== canonicalKey(repoRoot)) {
     return { everRun: false, auditConfigured: true, workflow: AUDIT_WORKFLOW };
   }
@@ -94,15 +87,29 @@ function neverRunCommands() {
   return [
     { label: 'governance frontmatter validation', command: 'node tools/governance-migration/validate.js', status: 'never-run', ranAt: null, ranAtLabel: null, source: 'repo-harness-auditor (audit.js)', currency: 'never-run' },
     { label: 'governance schema fixtures', command: 'node tools/governance-migration/test-fixtures.js', status: 'never-run', ranAt: null, ranAtLabel: null, source: 'repo-harness-auditor (audit.js)', currency: 'never-run' },
-    { label: 'cockpit tests', command: 'npm test (tools/command-center)', status: 'never-run', ranAt: null, ranAtLabel: null, source: 'repo-harness-auditor (audit.js)', currency: 'never-run' },
+    { label: 'cockpit tests', command: 'npm test', status: 'never-run', ranAt: null, ranAtLabel: null, source: 'repo-harness-auditor (audit.js)', currency: 'never-run' },
   ];
 }
 
 function getRepoHealth(repoRoot = REPO_ROOT) {
+  if (!repoRoot) {
+    return {
+      configured: false, readOnly: true, inspectedAt: new Date().toISOString(),
+      isRepo: false, rootToken: null, auditConfigured: false, branch: null, clean: null,
+      counts: { staged: 0, unstaged: 0, untracked: 0 },
+      lastCommit: null, upstream: { exists: false, ahead: null, behind: null },
+      safeToProceed: null, safeReason: 'no project configured', errors: [],
+      audit: { everRun: false, auditConfigured: false, workflow: AUDIT_WORKFLOW },
+      validationCommands: [],
+    };
+  }
   const now = Date.now();
-  // The in-repo audit harness only targets the default Stakeport root; any other
-  // project shows live git state only until an import/harness exists for it.
-  const auditConfigured = canonicalKey(repoRoot) === canonicalKey(REPO_ROOT);
+  // Read the sidecar once; derive auditConfigured from it (sidecar-driven model).
+  let sidecar = null;
+  try { sidecar = JSON.parse(fs.readFileSync(AUDIT_STATUS_FILE, 'utf8')); } catch { /* no sidecar */ }
+  const auditConfigured = !!(sidecar &&
+    sidecar.overall !== 'unavailable' &&
+    sidecar.repoRoot && sidecar.repoRoot === canonicalKey(repoRoot));
   const result = {
     readOnly: true, inspectedAt: new Date(now).toISOString(), isRepo: true,
     rootToken: rootToken(repoRoot),
@@ -117,7 +124,7 @@ function getRepoHealth(repoRoot = REPO_ROOT) {
   if (!branch.ok) {
     result.isRepo = false; result.errors.push(`branch: ${branch.error}`);
     result.safeToProceed = false; result.safeReason = 'not a git repository (or git unavailable)';
-    result.audit = readAudit(now, null, null, repoRoot, auditConfigured);
+    result.audit = readAudit(now, null, null, repoRoot, auditConfigured, sidecar);
     result.validationCommands = result.audit.everRun ? result.audit.commands : (auditConfigured ? neverRunCommands() : []);
     return result;
   }
@@ -161,7 +168,7 @@ function getRepoHealth(repoRoot = REPO_ROOT) {
     result.safeReason = `uncommitted changes present (${parts.join(', ')}) — review before destructive actions`;
   } else { result.safeReason = 'git status unavailable'; }
 
-  result.audit = readAudit(now, result.lastCommit && result.lastCommit.date, result.clean, repoRoot, auditConfigured);
+  result.audit = readAudit(now, result.lastCommit && result.lastCommit.date, result.clean, repoRoot, auditConfigured, sidecar);
   result.validationCommands = result.audit.everRun ? result.audit.commands : (auditConfigured ? neverRunCommands() : []);
   return result;
 }

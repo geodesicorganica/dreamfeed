@@ -429,9 +429,8 @@ function renderOverview() {
   const auditList = `<div class="okv"><span>result</span><b>${esc(audit.everRun ? audit.overall || 'unknown' : 'never run')}</b></div><div class="okv"><span>currency</span><b>${esc(audit.everRun ? audit.freshness || 'unknown' : 'never run')}</b></div><div class="okv"><span>last run</span><b>${esc(audit.lastRunLabel || 'not yet run')}</b></div>`;
   const staleList = stale.length ? `<ul class="olist">${stale.map((s) => `<li data-object-id="source:${esc(s.path)}">${pill('stale', 'red')} ${esc(s.path)}</li>`).join('')}</ul>` : '<p class="odim">No stale source files.</p>';
   const next = [...approvals.map((o) => `Review ${fieldValue(o.id, fieldValue(o.title, 'approval'))}`), ...blockers.map((o) => `Unblock ${fieldValue(o.rank)}: ${fieldValue(o.action).slice(0, 70)}`)];
-  const switched = state.isDefaultRoot === false;
   const noObjects = !state.strategicInitiatives.length && !state.workItems.length && !state.approvals.length;
-  const projBanner = switched ? `<div class="banner banner-warn">Viewing switched project${project && project.currentRoot ? ` — <code>${esc(project.currentRoot)}</code>` : ''}. ${noObjects ? 'No governance objects resolved here — this folder may not use the Stakeport governance layout. Use the Sources lens or the read-only file viewer to inspect it.' : 'Source state is read from this project; reset restores the default.'}</div>` : '';
+  const projBanner = noObjects && project && project.configured ? `<div class="banner banner-warn">No governance objects resolved here — this folder may not follow the Dreamfeed governance layout. Use the Sources lens or the read-only file viewer to inspect it.</div>` : '';
   return `${projBanner}<div class="banner">Dashboard lens — decisions and blockers first. Source state read ${esc(state.generatedAt)}. Controls are non-persistent; no cockpit configuration is written.</div>${strip}<div class="owidgets">${owidget(`Approvals — founder action (${approvals.length})`, 'queue', approvalsList)}${owidget(`Blockers (${blockers.length})`, 'board', blockersList)}</div><div class="owidgets">${owidget('Active goals', 'board', `<ul class="olist">${active.map((o) => `<li data-object-id="${esc(initiativeId(o))}">${pill('active', 'blue')} ${esc(fieldValue(o.name))} ${freshChip(o.freshness)}</li>`).join('') || '<li class="odim">No active initiatives.</li>'}</ul>`)}${owidget('Repo health', 'health', healthList, health.inspectedAt || '')}${owidget('Validation / audit', 'health', auditList, audit.lastRun || 'never run')}${owidget(`Stale surfaces (${stale.length})`, 'sources', staleList)}</div>${owidget('Next actions', 'queue', next.length ? `<ol class="olist onum">${next.slice(0, 8).map((n) => `<li>${esc(n)}</li>`).join('')}</ol>` : '<p class="odim">Nothing requires founder action right now.</p>')}`;
 }
 function renderBoard() {
@@ -545,7 +544,7 @@ function renderHealth() {
   const h = repoHealth; if (!h) return '<div class="banner">Repo Health loading…</div>'; if (h.fatal) return `<article class="card error-card"><div class="card-title">Repo health error</div><p>${esc(h.fatal)}</p></article>`;
   const audit = h.audit || { everRun: false }; const status = audit.everRun ? audit.overall || 'unknown' : 'never run'; const color = status === 'pass' ? 'green' : status === 'fail' ? 'red' : 'grey';
   const workspace = `<article class="card"><div class="card-head"><div class="card-title">Workspace — read-only</div>${h.safeToProceed ? pill('safe to inspect', 'green') : pill('caution', 'amber')}</div>${row('branch', { value: h.branch || 'n/y/s', tier: 'Canonical' })}${row('working tree', { value: h.clean === null ? 'unknown' : h.clean ? 'clean' : 'dirty', tier: 'Derived' })}${row('changes', { value: `${h.counts.staged} staged · ${h.counts.unstaged} unstaged · ${h.counts.untracked} untracked`, tier: 'Canonical' })}${row('assessment', { value: h.safeReason || 'not yet structured', tier: 'Derived' })}</article>`;
-  const auditCard = `<article class="card"><div class="card-head"><div class="card-title">Audit — repo-harness-auditor</div>${pill(status, color)}</div><div class="fieldrow"><span class="k">last run</span><span class="v">${esc(audit.lastRunLabel || 'never run')} ${audit.lastRun ? `(${esc(audit.lastRun)})` : ''}</span></div><div class="fieldrow"><span class="k">currency</span><span class="v">${esc(audit.freshness || 'never run')}</span></div><div class="fieldrow"><span class="k">workflow</span><span class="v">Read-only skill + harness sidecar. The cockpit never runs it.</span></div><div class="src">run externally: <span class="srclink" data-command="node tools/command-center/audit.js">node tools/command-center/audit.js</span></div></article>`;
+  const auditCard = `<article class="card"><div class="card-head"><div class="card-title">Audit — repo-harness-auditor</div>${pill(status, color)}</div><div class="fieldrow"><span class="k">last run</span><span class="v">${esc(audit.lastRunLabel || 'never run')} ${audit.lastRun ? `(${esc(audit.lastRun)})` : ''}</span></div><div class="fieldrow"><span class="k">currency</span><span class="v">${esc(audit.freshness || 'never run')}</span></div><div class="fieldrow"><span class="k">workflow</span><span class="v">Read-only skill + harness sidecar. The cockpit never runs it.</span></div><div class="src">run externally: <span class="srclink" data-command="node audit.js">node audit.js</span></div></article>`;
   const commands = (h.validationCommands || []).map((c) => `<tr><td>${esc(c.label)}</td><td><span class="srclink" data-command="${esc(c.command)}">${esc(c.command)}</span></td><td>${pill(c.status, c.status === 'pass' ? 'green' : c.status === 'fail' ? 'red' : 'grey')}</td><td>${esc(c.currency)}</td><td>${esc(c.ranAtLabel || 'never run')}</td><td>${esc(c.source)}</td></tr>`).join('');
   return `<div class="banner">Repo Health is an inspection surface. It displays read-only Git state and existing audit records; it does not run commands, change files, or create a new source of truth.</div><div class="cards">${workspace}${auditCard}</div>${group('validation', 'Validation / test status', `<table class="grid"><tr><th>check</th><th>command</th><th>last result</th><th>currency</th><th>last run</th><th>source</th></tr>${commands}</table>`, (h.validationCommands || []).length)}`;
 }
@@ -674,10 +673,15 @@ async function load(attempt = 0) {
 // ---------------------------------------------------------------------------
 function updateProjectLabel() {
   const el = $('#projectLabel'); if (!el) return;
-  if (!project) { el.textContent = 'default'; el.title = ''; return; }
-  el.textContent = project.isDefault ? 'default' : (project.label || 'project');
+  if (!project || project.configured === false) {
+    el.textContent = 'No project';
+    el.title = '';
+    $('#projectBtn')?.classList.remove('switched');
+    return;
+  }
+  el.textContent = project.label || 'project';
   el.title = project.currentRoot || '';
-  const btn = $('#projectBtn'); if (btn) btn.classList.toggle('switched', !project.isDefault);
+  $('#projectBtn')?.classList.remove('switched');
 }
 // Guarded fetch for state-changing/sensitive actions: carries the in-memory
 // action token as a custom header (forces a CORS preflight cross-origin, which
@@ -765,22 +769,24 @@ function renderBrowser() {
 }
 function openProjectDialog() {
   const dlg = $('#projectDialog'); if (!dlg) return;
-  $('#projectDialogCurrent').textContent = project ? project.currentRoot : '—';
-  $('#projectPath').value = project && !project.isDefault ? project.currentRoot : '';
+  $('#projectDialogCurrent').textContent = project && project.currentRoot ? project.currentRoot : 'No project configured';
+  $('#projectPath').value = project && project.configured ? project.currentRoot : '';
   // Native picker is the primary action when the server reports it available.
   const native = !!(project && project.pickers && project.pickers.native);
   $('#projectSelectFolder').hidden = !native;
   $('#projectSelectHint').hidden = !native;
   renderRecent();
-  // Start the in-app explorer at the active project folder.
+  // Start the in-app explorer at the active project folder (or drive root if none).
   browse = null; $('#pbList').innerHTML = '<div class="pb-empty">Loading…</div>';
-  browseTo(project ? project.currentRoot : '');
+  browseTo(project && project.configured ? project.currentRoot : '');
   const errEl = $('#projectError'); errEl.hidden = true; errEl.textContent = '';
+  // Enable/disable Clear button: only useful when a project is active.
+  const clearBtn = $('#projectReset'); if (clearBtn) clearBtn.disabled = !(project && project.configured);
   const warnEl = $('#projectWarn');
   const warn = project && (
     project.restoreWarning
-    || (project.persistWarning ? `Not saved for next launch (${project.persistWarning}) — the project will revert to default on restart.` : '')
-    || (!project.isDefault && !project.looksLikeRepo ? 'This folder has no agents/ or CLAUDE.md — it may not be a governance repo.' : '')
+    || (project.persistWarning ? `Not saved for next launch (${project.persistWarning}) — no project will be active on restart.` : '')
+    || (project.configured && !project.looksLikeRepo ? 'This folder has no agents/ or CLAUDE.md — it may not be a governance repo.' : '')
   );
   if (warn) { warnEl.textContent = warn; warnEl.hidden = false; } else { warnEl.hidden = true; }
   if (typeof dlg.showModal === 'function') { if (!dlg.open) dlg.showModal(); } else dlg.setAttribute('open', '');
@@ -804,7 +810,8 @@ async function selectFolder() {
 }
 async function setProject(pathValue) {
   const errEl = $('#projectError');
-  const target = pathValue || (project && project.default) || '';
+  // pathValue = '' means "clear project" (root= empty param triggers null on server).
+  const target = typeof pathValue === 'string' ? pathValue : '';
   try {
     const res = await guardedFetch('/api/project?root=' + encodeURIComponent(target));
     const data = await res.json();
@@ -813,7 +820,7 @@ async function setProject(pathValue) {
     if (data.actionToken) actionToken = data.actionToken;
     // A new project invalidates any selection/evidence from the previous one.
     view.selectedObjectId = null; view.evidence = null; view.graphSel = null;
-    feedback(`Switched project: ${data.isDefault ? 'default' : data.currentRoot}`);
+    feedback(data.configured === false ? 'Project cleared' : `Active project: ${data.currentRoot}`);
     if (data.persistWarning) feedback(`Note: project not saved for next launch — ${data.persistWarning}`);
     closeProjectDialog();
     await load();

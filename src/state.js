@@ -102,7 +102,7 @@ function buildState(opts = {}) {
     readOnly: true,
     rootToken: rootToken(repoRoot),
     isDefaultRoot: canonicalKey(repoRoot) === canonicalKey(REPO_ROOT),
-    ui: { alias: 'Dreamfeed', canonicalName: 'Stakeport OS Command Center — Operational Core (Brief A)' },
+    ui: { alias: 'Dreamfeed', canonicalName: 'Dreamfeed Command Center' },
     thresholdsSource: 'shared/cockpit-integration-guide.md §3',
     thresholds,
     sources,

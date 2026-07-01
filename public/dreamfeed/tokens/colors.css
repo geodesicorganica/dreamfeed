@@ -1,0 +1,54 @@
+/* Dreamfeed color tokens — locked palette from brand-guidelines.md (2026-06-21).
+   Dark canvas only. Color is a functional state signal, never atmosphere.
+   Keep saturated alert color within ~5% of foveal display area. */
+
+:root {
+  /* ---- Base canvas + depth planes (flat layers, no glassmorphism, no glow) ---- */
+  --df-bg-canvas: #202426;     /* Deep Canvas — lowest visual plane (main canvas) */
+  --df-panel: #272C2E;         /* Panel — sidebar, inspector, grouped trace rows */
+  --df-panel-raised: #303638;  /* Raised panel — command bar, active action wells */
+  --df-line: #3B4142;          /* Hairline — 1px structural grid + dividers */
+
+  /* one step below canvas, for wells / inset code regions */
+  --df-bg-sunken: #1A1E20;
+
+  /* ---- Text (all clear the 7:1 contrast floor on Deep Canvas) ---- */
+  --df-text-1: #D8D5CC;        /* Primary text — 10.66:1 */
+  --df-text-2: #B8BDB8;        /* Secondary text — 8.21:1 */
+  --df-text-muted: #AEB4AF;    /* Muted text — 7.41:1 */
+
+  /* ---- Functional state colors (reserved for state, not decoration) ---- */
+  --df-green: #6FBF8A;         /* Functional Green — verified / passed / LIVE */
+  --df-cyan: #7ECFD1;          /* Cyan — informational / selected / link */
+  --df-amber: #D6A65A;         /* Operational Amber — observe / active / warning / queue */
+  --df-red: #E06B64;           /* Off-Nominal Red — halt / failure / blockage */
+
+  /* low-emphasis tints of state colors for fills behind text (kept subtle) */
+  --df-green-dim: #2C3A31;
+  --df-cyan-dim: #28393A;
+  --df-amber-dim: #3A3326;
+  --df-red-dim: #3A2A29;
+
+  /* ---- Semantic aliases (consume these in product code) ---- */
+  --surface-canvas: var(--df-bg-canvas);
+  --surface-panel: var(--df-panel);
+  --surface-raised: var(--df-panel-raised);
+  --surface-sunken: var(--df-bg-sunken);
+
+  --text-primary: var(--df-text-1);
+  --text-secondary: var(--df-text-2);
+  --text-muted: var(--df-text-muted);
+  --text-on-accent: #18201B;     /* dark ink for use on a filled green/amber chip */
+
+  --border-line: var(--df-line);
+  --border-strong: #4A5152;
+  --focus-ring: var(--df-cyan);
+
+  --state-ok: var(--df-green);
+  --state-info: var(--df-cyan);
+  --state-warn: var(--df-amber);
+  --state-error: var(--df-red);
+
+  /* the single static identity accent used by the mark (amber, per logo spec) */
+  --brand-accent: var(--df-amber);
+}
