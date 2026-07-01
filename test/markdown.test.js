@@ -59,7 +59,7 @@ test('markdown renderer: raw HTML and event attributes stay escaped text', () =>
 });
 
 test('markdown renderer: links allow safe hrefs and reject executable schemes', () => {
-  const html = renderMarkdown('[relative](docs/file.md) [anchor](#section) [mail](mailto:ops@example.com) [bad](javascript:alert(1)) [file](file:///C:/secret.md)');
+  const html = renderMarkdown('[relative](docs/file.md) [anchor](#section) [mail](mailto:ops@example.com) [bad](javascript:alert(1)) [control](\u0001javascript:alert(1)) [file](file:///C:/secret.md)');
 
   assert.equal(isMarkdownPath('agents/founder/outputs/weekly_priorities.md'), true);
   assert.equal(isMarkdownPath('tools/command-center/public/app.js'), false);
@@ -67,11 +67,24 @@ test('markdown renderer: links allow safe hrefs and reject executable schemes', 
   assert.equal(isSafeMarkdownHref('mailto:ops@example.com'), true);
   assert.equal(isSafeMarkdownHref('docs/file.md'), true);
   assert.equal(isSafeMarkdownHref('javascript:alert(1)'), false);
+  assert.equal(isSafeMarkdownHref('\u0001javascript:alert(1)'), false);
   assert.equal(isSafeMarkdownHref('file:///C:/secret.md'), false);
 
   assert.match(html, /<a href="docs\/file\.md" rel="noopener noreferrer">relative<\/a>/);
   assert.match(html, /<a href="#section" rel="noopener noreferrer">anchor<\/a>/);
   assert.match(html, /<a href="mailto:ops@example\.com" rel="noopener noreferrer">mail<\/a>/);
   assert.doesNotMatch(html, /href="javascript:/i);
+  assert.doesNotMatch(html, /<a [^>]*>control<\/a>/i);
   assert.doesNotMatch(html, /href="file:/i);
+});
+
+test('markdown renderer: unterminated frontmatter renders as normal markdown', () => {
+  const html = renderMarkdown(`---
+# Heading
+Body`);
+
+  assert.doesNotMatch(html, /markdown-frontmatter/);
+  assert.match(html, /<p>---<\/p>/);
+  assert.match(html, /<h1>Heading<\/h1>/);
+  assert.match(html, /<p>Body<\/p>/);
 });

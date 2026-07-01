@@ -42,9 +42,13 @@ function isMarkdownPath(path) {
 }
 function isSafeMarkdownHref(href) {
   const value = String(href || '').trim();
-  if (!value || value.startsWith('//')) return false;
-  const scheme = value.match(/^([A-Za-z][A-Za-z0-9+.-]*):/);
-  return scheme ? ['http', 'https', 'mailto'].includes(scheme[1].toLowerCase()) : true;
+  if (!value || value.startsWith('//') || /[\u0000-\u001F\u007F]/.test(value)) return false;
+  try {
+    const parsed = new URL(value, 'http://dreamfeed.local/');
+    return ['http:', 'https:', 'mailto:'].includes(parsed.protocol);
+  } catch {
+    return false;
+  }
 }
 function renderMarkdownInline(text) {
   const tokens = [];
@@ -114,15 +118,16 @@ function renderMarkdown(markdown) {
   };
   const flushBlocks = () => { flushParagraph(); flushList(); flushQuote(); };
   let i = 0;
-  if (lines[0] && lines[0].trim() === '---') {
-    const fm = ['---'];
-    i = 1;
-    while (i < lines.length) {
-      fm.push(lines[i]);
-      if (lines[i].trim() === '---') { i++; break; }
-      i++;
+  if (lines[0] && lines[0].trim() === '---' && lines[0] === lines[0].trimStart()) {
+    let end = -1;
+    for (let j = 1; j < lines.length; j++) {
+      if (lines[j].trim() === '---') { end = j; break; }
     }
-    out.push(`<pre class="markdown-frontmatter"><code>${esc(fm.join('\n'))}</code></pre>`);
+    if (end !== -1) {
+      const fm = lines.slice(0, end + 1);
+      i = end + 1;
+      out.push(`<pre class="markdown-frontmatter"><code>${esc(fm.join('\n'))}</code></pre>`);
+    }
   }
   for (; i < lines.length; i++) {
     const line = lines[i];
