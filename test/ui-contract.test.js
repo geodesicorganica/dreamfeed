@@ -65,6 +65,13 @@ test('selection is derived over existing state and routes evidence into the shar
   assert.match(app, /function selectObject\(id/, 'cards, graph nodes, and rows share selection state');
   assert.match(app, /function renderInspector\(\)/, 'shared inspector renders selected object');
   assert.match(app, /function openEvidence\(path/, 'source evidence is opened through the inspector');
+  assert.match(app, /function renderEvidenceView\(item\)/, 'evidence view is factored for rendered/raw source display');
+  assert.match(app, /function renderMarkdown\(markdown\)/, 'markdown renderer is local and zero-dependency');
+  assert.match(app, /view\.evidenceMode = isMarkdownPath\(path\) \? 'rendered' : 'raw';/, 'markdown evidence opens rendered by default');
+  assert.match(app, /data-evidence-mode="rendered"/, 'markdown evidence exposes rendered mode');
+  assert.match(app, /data-evidence-mode="raw"/, 'markdown evidence preserves raw source mode');
+  assert.match(app, /class="markdown-body"/, 'rendered markdown uses a scoped markdown body container');
+  assert.doesNotMatch(app, /DOMParser|sanitizeHTML|marked\.min|DOMPurify/, 'markdown preview does not rely on sanitizer-first or vendored parser paths');
   assert.ok(app.includes('const sourceId = `source:${path}`;'), 'existing source registry identity is reused for evidence paths');
   assert.ok(app.includes('const id = `file:${path}`;'), 'file identity remains only as a fallback path');
   assert.match(app, /fieldValue\(o\.decision_maker, fieldValue\(o\.target_agent\)\)/, 'approval owner fallback unwraps decision_maker before target_agent');

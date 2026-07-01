@@ -12,12 +12,13 @@ let actionToken = null;
 let browse = null; // in-app folder browser state: { path, parent, atRoot, entries, drives }
 let objectRegistry = new Map();
 let evidenceRequestId = 0;
+const hasDom = typeof window !== 'undefined' && typeof document !== 'undefined';
 const view = {
   tab: 'overview', filterText: '', filterStatus: '', collapsed: {}, graphSel: null,
-  selectedObjectId: null, inspectorTab: 'overview', evidence: null,
+  selectedObjectId: null, inspectorTab: 'overview', evidence: null, evidenceMode: 'rendered',
   // Wide layouts keep all five regions visible. Narrow layouts start with the
   // inspector collapsed and expose it through the command-bar drawer control.
-  inspectorOpen: window.innerWidth > 940, bottomOpen: true, sidebarOpen: false, density: 'comfortable', feedback: [],
+  inspectorOpen: hasDom ? window.innerWidth > 940 : true, bottomOpen: true, sidebarOpen: false, density: 'comfortable', feedback: [],
 };
 
 // The explicit Dreamfeed view registry. Existing Command Center tabs are
@@ -35,6 +36,144 @@ const $ = (s) => document.querySelector(s);
 const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const slug = (s) => String(s || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
 const monoTime = (value) => value ? new Date(value).toLocaleTimeString() : 'n/y/s';
+
+function isMarkdownPath(path) {
+  return /\.md$/i.test(String(path || '').split(/[?#]/)[0]);
+}
+function isSafeMarkdownHref(href) {
+  const value = String(href || '').trim();
+  if (!value || value.startsWith('//')) return false;
+  const scheme = value.match(/^([A-Za-z][A-Za-z0-9+.-]*):/);
+  return scheme ? ['http', 'https', 'mailto'].includes(scheme[1].toLowerCase()) : true;
+}
+function renderMarkdownInline(text) {
+  const tokens = [];
+  const stash = (html) => {
+    const token = `\u0000DFMD${tokens.length}\u0000`;
+    tokens.push([token, html]);
+    return token;
+  };
+  let raw = String(text == null ? '' : text);
+  raw = raw.replace(/`([^`\n]+)`/g, (_, code) => stash(`<code>${esc(code)}</code>`));
+  raw = raw.replace(/\[([^\]\n]+)\]\(([^)\s]+)\)/g, (match, label, href) => {
+    if (!isSafeMarkdownHref(href)) return `${label} (${href})`;
+    return stash(`<a href="${esc(href)}" rel="noopener noreferrer">${esc(label)}</a>`);
+  });
+  let html = esc(raw);
+  html = html.replace(/\*\*([^*\n]+)\*\*/g, '<strong>$1</strong>');
+  html = html.replace(/(^|[^*])\*([^*\n][^*\n]*?)\*/g, '$1<em>$2</em>');
+  for (const [token, value] of tokens) html = html.replaceAll(token, value);
+  return html;
+}
+function splitMarkdownTableRow(line) {
+  return String(line || '').trim().replace(/^\|/, '').replace(/\|$/, '').split('|').map((cell) => cell.trim());
+}
+function isMarkdownTableStart(lines, index) {
+  const header = String(lines[index] || '').trim();
+  const separator = String(lines[index + 1] || '').trim();
+  if (!header.includes('|') || !separator.includes('|')) return false;
+  const headers = splitMarkdownTableRow(header);
+  const separators = splitMarkdownTableRow(separator);
+  return headers.length > 1 && headers.length === separators.length && separators.every((cell) => /^:?-{3,}:?$/.test(cell));
+}
+function renderMarkdownTable(lines, index) {
+  const headers = splitMarkdownTableRow(lines[index]);
+  const rows = [];
+  let cursor = index + 2;
+  while (cursor < lines.length && String(lines[cursor]).trim().includes('|')) {
+    rows.push(splitMarkdownTableRow(lines[cursor]));
+    cursor++;
+  }
+  const head = `<thead><tr>${headers.map((cell) => `<th>${renderMarkdownInline(cell)}</th>`).join('')}</tr></thead>`;
+  const body = rows.length ? `<tbody>${rows.map((row) => `<tr>${headers.map((_, i) => `<td>${renderMarkdownInline(row[i] || '')}</td>`).join('')}</tr>`).join('')}</tbody>` : '';
+  return { html: `<table>${head}${body}</table>`, nextIndex: cursor };
+}
+function renderMarkdown(markdown) {
+  const lines = String(markdown == null ? '' : markdown).replace(/\r\n?/g, '\n').split('\n');
+  const out = [];
+  let paragraph = [];
+  let list = null;
+  let quote = [];
+  let inCode = false;
+  let codeFence = '';
+  let codeLines = [];
+  const flushParagraph = () => {
+    if (!paragraph.length) return;
+    out.push(`<p>${renderMarkdownInline(paragraph.join(' '))}</p>`);
+    paragraph = [];
+  };
+  const flushList = () => {
+    if (!list) return;
+    out.push(`<${list.type}>${list.items.map((item) => `<li>${renderMarkdownInline(item)}</li>`).join('')}</${list.type}>`);
+    list = null;
+  };
+  const flushQuote = () => {
+    if (!quote.length) return;
+    out.push(`<blockquote>${quote.map((line) => renderMarkdownInline(line)).join('<br>')}</blockquote>`);
+    quote = [];
+  };
+  const flushBlocks = () => { flushParagraph(); flushList(); flushQuote(); };
+  let i = 0;
+  if (lines[0] && lines[0].trim() === '---') {
+    const fm = ['---'];
+    i = 1;
+    while (i < lines.length) {
+      fm.push(lines[i]);
+      if (lines[i].trim() === '---') { i++; break; }
+      i++;
+    }
+    out.push(`<pre class="markdown-frontmatter"><code>${esc(fm.join('\n'))}</code></pre>`);
+  }
+  for (; i < lines.length; i++) {
+    const line = lines[i];
+    const trimmed = line.trim();
+    const fence = trimmed.match(/^```([A-Za-z0-9_-]+)?\s*$/);
+    if (fence) {
+      if (inCode) {
+        out.push(`<pre><code${codeFence ? ` class="language-${esc(codeFence)}"` : ''}>${esc(codeLines.join('\n'))}</code></pre>`);
+        inCode = false; codeFence = ''; codeLines = [];
+      } else {
+        flushBlocks(); inCode = true; codeFence = fence[1] || ''; codeLines = [];
+      }
+      continue;
+    }
+    if (inCode) { codeLines.push(line); continue; }
+    if (!trimmed) { flushBlocks(); continue; }
+    if (isMarkdownTableStart(lines, i)) {
+      flushBlocks();
+      const rendered = renderMarkdownTable(lines, i);
+      out.push(rendered.html);
+      i = rendered.nextIndex - 1;
+      continue;
+    }
+    const heading = trimmed.match(/^(#{1,6})\s+(.+)$/);
+    if (heading) {
+      flushBlocks();
+      out.push(`<h${heading[1].length}>${renderMarkdownInline(heading[2])}</h${heading[1].length}>`);
+      continue;
+    }
+    const quoteLine = trimmed.match(/^>\s?(.*)$/);
+    if (quoteLine) {
+      flushParagraph(); flushList();
+      quote.push(quoteLine[1]);
+      continue;
+    }
+    const unordered = trimmed.match(/^[-*+]\s+(.+)$/);
+    const ordered = trimmed.match(/^\d+[.)]\s+(.+)$/);
+    if (unordered || ordered) {
+      flushParagraph(); flushQuote();
+      const type = ordered ? 'ol' : 'ul';
+      if (!list || list.type !== type) flushList();
+      if (!list) list = { type, items: [] };
+      list.items.push((unordered || ordered)[1]);
+      continue;
+    }
+    paragraph.push(trimmed);
+  }
+  if (inCode) out.push(`<pre><code${codeFence ? ` class="language-${esc(codeFence)}"` : ''}>${esc(codeLines.join('\n'))}</code></pre>`);
+  flushBlocks();
+  return out.join('\n');
+}
 
 function fv(f) {
   if (!f || f.nys) return '<span class="nys">not yet structured</span>';
@@ -192,6 +331,7 @@ async function openEvidence(path, objectId) {
   view.selectedObjectId = id;
   view.inspectorOpen = true;
   view.inspectorTab = 'evidence';
+  view.evidenceMode = isMarkdownPath(path) ? 'rendered' : 'raw';
   // Without a current root token the stale-root guard cannot protect the read
   // (the path could resolve against a different project). Refuse rather than
   // risk a wrong-project read.
@@ -408,18 +548,32 @@ function renderHealth() {
 // ---------------------------------------------------------------------------
 // Shared Inspector (region 4) and source-backed validation panel (region 5).
 // ---------------------------------------------------------------------------
+function renderEvidenceView(item) {
+  if (!(view.evidence && view.evidence.path === item.sourcePath)) {
+    return item.sourcePath ? `<p class="odim">Source evidence is available. Use the read-only action above to load it into this inspector.</p>` : '<p class="odim">No source file is available for this derived selection.</p>';
+  }
+  if (view.evidence.loading) return '<p class="odim">Loading source evidence...</p>';
+  if (view.evidence.error) return `<pre class="evidence-content">${esc(view.evidence.error)}</pre>`;
+  const meta = `<div class="evidence-meta">${esc(view.evidence.meta || '')} · Read-only. Edit in an editor; the cockpit never writes.</div>`;
+  const raw = `<pre class="evidence-content">${esc(view.evidence.content || '')}</pre>`;
+  if (!isMarkdownPath(view.evidence.path)) return meta + raw;
+  const mode = view.evidenceMode === 'raw' ? 'raw' : 'rendered';
+  const toggle = `<div class="evidence-mode" role="group" aria-label="Evidence display mode"><button type="button" data-evidence-mode="rendered" class="${mode === 'rendered' ? 'active' : ''}">Rendered</button><button type="button" data-evidence-mode="raw" class="${mode === 'raw' ? 'active' : ''}">Raw</button></div>`;
+  return `${meta}${toggle}${mode === 'raw' ? raw : `<div class="markdown-body">${renderMarkdown(view.evidence.content || '')}</div>`}`;
+}
 function renderInspector() {
   const inspector = $('#inspector'); if (!inspector) return;
   const item = objectRegistry.get(view.selectedObjectId);
   if (!item) { inspector.innerHTML = '<div class="inspector-placeholder">Select a graph node, card, or table row. The inspector shows one derived UI record over the existing source-backed object, never a duplicate truth.</div>'; return; }
   const overview = `<dl class="inspector-kv"><dt>Type</dt><dd>${esc(item.type)}</dd><dt>State</dt><dd>${esc(item.state)}</dd><dt>Owner / authority</dt><dd>${esc(item.owner)} · ${esc(item.sourceAuthority)}</dd><dt>Timestamp</dt><dd>${esc(item.timestamp)}</dd><dt>Provenance</dt><dd>${esc(item.provenance)}</dd>${item.overview.map(([k, v]) => `<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join('')}</dl>${item.sourcePath ? '' : '<p class="odim">No directly viewable source file is available for this derived object.</p>'}`;
-  const evidence = view.evidence && view.evidence.path === item.sourcePath ? (view.evidence.loading ? '<p class="odim">Loading source evidence…</p>' : view.evidence.error ? `<pre class="evidence-content">${esc(view.evidence.error)}</pre>` : `<div class="evidence-meta">${esc(view.evidence.meta || '')} · Read-only. Edit in an editor; the cockpit never writes.</div><pre class="evidence-content">${esc(view.evidence.content || '')}</pre>`) : item.sourcePath ? `<p class="odim">Source evidence is available. Use the read-only action above to load it into this inspector.</p>` : '<p class="odim">No source file is available for this derived selection.</p>';
+  const evidence = renderEvidenceView(item);
   const relationships = item.relationships.length ? `<ul class="detail-list">${item.relationships.map((r) => `<li>${esc(r)}</li>`).join('')}</ul>` : '<p class="odim">No source-backed relationship is structured for this selection.</p>';
   const content = view.inspectorTab === 'evidence' ? evidence : view.inspectorTab === 'relationships' ? relationships : overview;
   const sourceAction = item.sourcePath ? `<button type="button" class="inspector-action" data-evidence-path="${esc(item.sourcePath)}">Load read-only source → ${esc(item.sourcePath)}</button>` : '';
   inspector.innerHTML = `<div class="inspector-head"><div class="region-label">Selected object</div><h2>${esc(item.title)}</h2><div class="inspector-id">${esc(item.id)}</div></div><div class="inspector-tabs"><button type="button" data-inspector-tab="overview" class="${view.inspectorTab === 'overview' ? 'active' : ''}">Overview</button><button type="button" data-inspector-tab="evidence" class="${view.inspectorTab === 'evidence' ? 'active' : ''}">Evidence</button><button type="button" data-inspector-tab="relationships" class="${view.inspectorTab === 'relationships' ? 'active' : ''}">Relationships</button></div><div class="inspector-body">${content}${sourceAction}<div class="detail-sec">Read-only action</div><p class="odim">${esc(item.nextAction)}</p></div>`;
   inspector.querySelectorAll('[data-inspector-tab]').forEach((button) => button.addEventListener('click', () => { view.inspectorTab = button.dataset.inspectorTab; renderInspector(); }));
   inspector.querySelectorAll('[data-evidence-path]').forEach((button) => button.addEventListener('click', () => openEvidence(button.dataset.evidencePath, item.id)));
+  inspector.querySelectorAll('[data-evidence-mode]').forEach((button) => button.addEventListener('click', () => { view.evidenceMode = button.dataset.evidenceMode; renderInspector(); }));
 }
 function renderBottomPanel() {
   const panel = $('#bottomPanel'); if (!panel || !state) return;
@@ -686,5 +840,16 @@ function bindShell() {
   document.addEventListener('keydown', (event) => { if (event.key === 'Escape') { view.sidebarOpen = false; if (window.innerWidth <= 940) view.inspectorOpen = false; render(); } });
 }
 
-bindShell();
-load();
+if (hasDom) {
+  bindShell();
+  load();
+}
+
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = {
+    isMarkdownPath,
+    isSafeMarkdownHref,
+    renderMarkdown,
+    renderMarkdownInline,
+  };
+}
