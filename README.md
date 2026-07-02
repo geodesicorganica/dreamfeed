@@ -15,6 +15,13 @@ npm install
 npm start
 ```
 
+One-time setup per clone — enable the commit gate (runs `npm test`, including
+the PS-002/Gate F constraint tests, before every commit):
+
+```
+git config core.hooksPath .githooks
+```
+
 Opens at `http://localhost:3000`. Use the **Project** button to select a local
 project folder. Stakeport OS (`C:\Projects\stakeport_os`) is not embedded — select
 it through the picker after startup.

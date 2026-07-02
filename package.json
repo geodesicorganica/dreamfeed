@@ -4,6 +4,9 @@
   "private": true,
   "description": "Dreamfeed — read-only, localhost-only governance cockpit. Zero runtime dependencies.",
   "type": "commonjs",
+  "engines": {
+    "node": ">=22"
+  },
   "scripts": {
     "start": "node src/server.js",
     "test": "node --test test/*.test.js",

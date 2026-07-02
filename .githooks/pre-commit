@@ -1,0 +1,13 @@
+#!/bin/sh
+# Dreamfeed pre-commit gate: the portable suite (including the PS-002 / Gate F
+# constraint tests) must pass before any commit. Stateless by design — it always
+# runs; the suite is zero-dependency and fast.
+#
+# Activate once per clone:  git config core.hooksPath .githooks
+echo "pre-commit: running npm test (portable suite + constraint checks)..."
+npm test || {
+  echo ""
+  echo "pre-commit: npm test failed — commit blocked."
+  echo "Fix the failure (or the constraint violation) and retry."
+  exit 1
+}
