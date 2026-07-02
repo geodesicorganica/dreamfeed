@@ -10,6 +10,7 @@ OS decision queue (`agents/founder/outputs/decision_queue.md` in
 |---|---|---|---|---|
 | D28 | Multi-project root selection / workspace isolation | 2026-06-29 | Resolved — accepted | [d28-project-switching.md](d28-project-switching.md) |
 | D29 | Standalone extraction to `c:\Projects\dreamfeed-command-center` | 2026-07-01 | Resolved — completed | [d29-standalone-extraction.md](d29-standalone-extraction.md) |
+| D30 | Work-item home: GitHub Issues now; `os/` layer deferred to parser generalization | 2026-07-02 | Resolved — founder decision | [d30-work-item-home.md](d30-work-item-home.md) |
 
 ## Adding new decisions
 

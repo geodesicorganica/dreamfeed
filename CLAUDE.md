@@ -19,7 +19,9 @@ Dreamfeed Command Center is a standalone Git repository.
   state leakage.
 
 These constraints are binding under PS-002 Phase 1 and Gate F. The next
-execution-enabled phase requires explicit founder approval.
+execution-enabled phase requires explicit founder approval. Any relaxation of
+these constraints requires a `docs/decisions/dNN` record **before**
+implementation. `test/constraints.test.js` enforces them mechanically.
 
 ## Before major changes
 
