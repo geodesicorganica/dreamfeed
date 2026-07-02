@@ -37,7 +37,7 @@ scope: Dreamfeed-only brand extraction for logo strategy and design work
 | legal_entity_name | Missing — runs inside the Stakeport OS repo today; ROADMAP.md states the Phase 2 spin-out will be "a separate entity from Stakeport (details TBD at Phase 2 planning)" |
 | brand_or_product_name | Dreamfeed — single name across its full lifecycle; today's internal cockpit and tomorrow's standalone product are the same brand object, not two names converging |
 | task_scope | Full identity / logo strategy for Dreamfeed, currently operating as an internal tool (Phase 1) designed from inception to spin out into its own standalone product and eventually separate company (Phase 2, per ROADMAP.md) |
-| brand_change_type | New brand, early-but-permanent. Dreamfeed already has a name, a working visual system (`brand-guidelines.md`), and a live implementation (`tools/command-center/`). This is not a rebrand and not name-selection — it's extending an identity designed to outlast its current internal phase. |
+| brand_change_type | New brand, early-but-permanent. Dreamfeed already has a name, a working visual system (`brand-guidelines.md`), and a live implementation (this repository). This is not a rebrand and not name-selection — it's extending an identity designed to outlast its current internal phase. |
 | source_confidence | High — internal-phase brand system is fully specified and implemented; future-phase strategic/ICP positioning is specified in the three research files and is founder-endorsed as forward-looking material for this same brand. |
 
 ## source_inventory

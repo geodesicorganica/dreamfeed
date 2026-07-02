@@ -28,7 +28,9 @@ Dreamfeed brand lifecycle; Stakeport's public brand remains separate.
 Read-only command center that parses OS markdown tracking files
 (governance-schema frontmatter, pull architecture) and surfaces live
 strategic state: initiative status, weekly priorities, decisions queue,
-blocked items, dispatch queue. Runs entirely inside the Stakeport OS repo.
+blocked items, dispatch queue. Originally built inside the Stakeport OS repo;
+extracted to this standalone repository (D29, 2026-07-01) — Stakeport is now
+selected at runtime via the Project picker.
 
 **Source:** `c:\Projects\dreamfeed-command-center` (extracted D29 2026-07-01; was at `tools/command-center/`)
 **Tracking:** Stakeport OS `strategic_initiatives.md` — "Build Stakeport OS Command Center"

@@ -24,7 +24,7 @@ it through the picker after startup.
 | Command | What it does |
 |---|---|
 | `npm start` | Start the server at localhost:3000 |
-| `npm test` | Run portable test suite (50 pass, 1 skip expected) |
+| `npm test` | Run portable test suite (all tests must pass; one legacy skip is expected) |
 | `npm run test:integration` | Run integration tests against a real repo (requires `DREAMFEED_STAKEPORT_ROOT`) |
 
 ## Integration test

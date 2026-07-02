@@ -27,7 +27,7 @@ execution-enabled phase requires explicit founder approval.
   changes, run a grill-me discovery pass (one question at a time, recommended
   answer included) before editing files. See `docs/workflows/grill-me-discovery.md`.
 - **Run tests before committing** any change to `src/` or `public/app.js`:
-  `npm test` must pass (50 pass, 1 skip expected).
+  `npm test` must pass (the suite is the source of truth for test counts).
 - **Do not self-accept gate 5b** or any founder gate. Record self-verification
   and let the founder make the final call.
 

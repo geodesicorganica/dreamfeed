@@ -12,7 +12,7 @@ scope: Dreamfeed-only combination-mark spec for MVP-launch identity lock
 > field of 10 candidate directions, narrowed to 5 via psychology-based design
 > research, then revised once more per founder decision to strengthen the
 > mark's own motivation signal. **Rendered 2026-06-22** via Claude Design as
-> a full asset set in `docs/dreamfeed/design-system/assets/`
+> a full asset set in `docs/design-system/assets/`
 > (`logo-mark.svg`, `logo-mark-light.svg`, `logo-lockup.svg`,
 > `logo-lockup-light.svg`, `logo-stacked.svg`, `logo-stacked-light.svg`,
 > `logo-wordmark.svg`, `logo-social.svg`, `favicon.svg`, `og-card.svg`). The
@@ -178,7 +178,7 @@ existing palette.
 | Raster exports (.png/.ico) | various sizes | — | 🔲 Not yet produced — SVGs above are the source of truth; raster exports can be generated from them as needed per platform requirement (e.g. .ico for legacy favicon support) |
 
 All SVG assets live in
-`docs/dreamfeed/design-system/assets/`. The folder also includes a
+`docs/design-system/assets/`. The folder also includes a
 full supporting design system (components, design tokens as CSS, guideline
 pages, a UI-kit recreation of the cockpit) beyond the logo itself — see that
 folder's `readme.md` for its complete index.
@@ -216,7 +216,7 @@ Two render passes produced this mark, in this order:
    back to the starting point, all filled rather than stroked. This
    technique change makes the asymmetric terminal cut achievable, and the
    second pass implements it correctly. **This is the version now in
-   `docs/dreamfeed/design-system/assets/` and is canonical.** The
+   `docs/design-system/assets/` and is canonical.** The
    first pass's folder and zip have been deleted — fully superseded, no
    unique content lost (verified via file-by-file diff before deletion).
 
@@ -229,7 +229,7 @@ cannot express it and will silently simplify instead of erroring.
 
 1. ~~Hand this spec to a designer or image-generation tool for rendering~~ —
    **done 2026-06-22**, via Claude Design. Full asset set at
-   `docs/dreamfeed/design-system/assets/`.
+   `docs/design-system/assets/`.
 2. Run a trademark/resemblance search on "Dreamfeed" as a name and on the
    rendered mark (loading-spinner/status-badge adjacency, flagged above) —
    **still outstanding**, this is a legal step this design process does not cover.

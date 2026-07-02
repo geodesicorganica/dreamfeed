@@ -6,14 +6,14 @@
    ```
    npm test
    ```
-   All tests must pass (50 pass, 1 skip is expected). A regression here blocks
-   submission.
+   All tests must pass (one legacy skip is expected; the suite is the source of
+   truth for counts). A regression here blocks submission.
 
 2. **Run integration tests** if project-selection or state-parsing changed.
    ```
    DREAMFEED_STAKEPORT_ROOT=c:\Projects\stakeport_os npm run test:integration
    ```
-   All 22 integration tests must pass.
+   All integration tests must pass.
 
 3. **Self-verify against the open punchlist.** Check
    `agents/developer/outputs/command-center/` in the Stakeport OS repo for the

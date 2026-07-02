@@ -3,7 +3,7 @@
 // Runs only non-destructive git reads (rev-parse, status, log, rev-list) with
 // --no-optional-locks. NEVER runs commit/push/reset/checkout/clean/add. Reads the
 // audit-status sidecar written by the repo-harness-auditor harness
-// (tools/command-center/audit.js) — it never writes that file. Zero write-back to
+// (audit.js at the repo root) — it never writes that file. Zero write-back to
 // any governance/content source file (NFR1).
 
 const { execFileSync } = require('child_process');

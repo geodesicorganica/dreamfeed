@@ -7,7 +7,7 @@
 // workflow is realized as this read-only project harness. It runs the repo's
 // existing READ-ONLY checks and writes a timestamped status record the Dreamfeed
 // Repo Health panel reads. The cockpit NEVER runs this (no agent execution from
-// the cockpit) — a human/agent runs `node tools/command-center/audit.js`; the
+// the cockpit) — a human/agent runs `node audit.js` from the repo root; the
 // cockpit only reads `audit-status.json`.
 //
 // Read-only: this harness runs governance validators, the cockpit test suite,

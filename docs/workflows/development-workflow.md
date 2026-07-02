@@ -18,8 +18,9 @@ npm start
 Starts the server at `http://localhost:3000`. Select a project folder via the
 Project button to point the cockpit at any local repo.
 
-Default project: `c:\Projects\stakeport_os` (or the value in
-`project-config.json` if present).
+No default project: the server starts with no project selected and shows the
+picker. The chosen root persists in `project-config.json` (gitignored,
+machine-specific).
 
 ## Running tests
 
@@ -27,14 +28,15 @@ Default project: `c:\Projects\stakeport_os` (or the value in
 npm test
 ```
 
-Runs the portable test suite (50 tests, 1 skip expected). No environment
-variables required.
+Runs the portable test suite (all must pass; one legacy skip is expected — the
+suite itself is the source of truth for counts). No environment variables
+required.
 
 ```
 DREAMFEED_STAKEPORT_ROOT=c:\Projects\stakeport_os npm run test:integration
 ```
 
-Runs the integration test suite (22 tests) against a real Stakeport OS repo.
+Runs the integration test suite against a real Stakeport OS repo.
 
 ## When to run tests
 
