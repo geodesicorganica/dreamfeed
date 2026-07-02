@@ -1,0 +1,43 @@
+<!-- @dsCard group="Colors" viewport="700x310" name="Functional State Colors" subtitle="Color = state signal only; ≤5% of foveal area; never decoration" -->
+<!DOCTYPE html>
+<html><head><meta charset="utf-8"><link rel="stylesheet" href="../styles.css">
+<style>
+  html,body{margin:0}
+  body{background:var(--df-bg-canvas);font-family:var(--font-sans);padding:16px;display:flex;flex-direction:column;gap:12px}
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+  .c{display:flex;gap:12px;align-items:flex-start;border:1px solid var(--df-line);border-radius:var(--radius-2);padding:12px;background:var(--df-panel)}
+  .dot{width:14px;height:14px;border-radius:50%;flex:0 0 auto;margin-top:2px}
+  .n{font-size:13px;font-weight:600;color:var(--text-primary)}
+  .d{font-size:11.5px;color:var(--text-muted);margin-top:3px;line-height:1.4}
+  .v{font-family:var(--font-mono);font-size:11px;color:var(--text-muted)}
+  .over{font-size:10px;font-weight:600;letter-spacing:0.08em;text-transform:uppercase;color:var(--text-muted);margin-bottom:2px}
+  .persist{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+  .persist-cell{background:var(--df-panel);border:1px solid var(--df-line);border-radius:var(--radius-2);padding:10px 12px}
+  .persist-cell .label{font-family:var(--font-mono);font-size:10px;font-weight:600;letter-spacing:0.06em;text-transform:uppercase;margin-bottom:6px}
+  .persist-cell .rule{font-size:11px;color:var(--text-muted);line-height:1.5;border-bottom:1px solid var(--df-line);padding:3px 0}
+  .persist-cell .rule:last-child{border-bottom:none}
+</style></head>
+<body>
+  <div class="grid">
+    <div class="c"><span class="dot" style="background:var(--df-green)"></span><div><div class="n">Functional Green <span class="v">#6FBF8A</span></div><div class="d">Verified / passed / LIVE record states only</div></div></div>
+    <div class="c"><span class="dot" style="background:var(--df-amber)"></span><div><div class="n">Operational Amber <span class="v">#D6A65A</span></div><div class="d">Observe &amp; assess — active, warning, queue delay</div></div></div>
+    <div class="c"><span class="dot" style="background:var(--df-red)"></span><div><div class="n">Off-Nominal Red <span class="v">#E06B64</span></div><div class="d">Halt, validation failure, architectural blockage</div></div></div>
+    <div class="c"><span class="dot" style="background:var(--df-cyan)"></span><div><div class="n">Informational Cyan <span class="v">#7ECFD1</span></div><div class="d">Selection, focus ring, links, informational state</div></div></div>
+  </div>
+
+  <div>
+    <div class="over">Functional Green — persistence rules</div>
+    <div class="persist">
+      <div class="persist-cell">
+        <div class="label" style="color:var(--df-green)">Persistent — allowed</div>
+        <div class="rule">Historical success logs: completed trace events, passed checks, accepted deploys, verified audit records</div>
+        <div class="rule">Active LIVE environment states: LIVE badges, production indicators requiring continuous awareness</div>
+      </div>
+      <div class="persist-cell">
+        <div class="label" style="color:var(--df-amber)">Transient — must clear</div>
+        <div class="rule">Toggle acknowledgements, copied commands, saved fields, applied filters, one-off action success</div>
+        <div class="rule">Any state that does not persist in the operational record</div>
+      </div>
+    </div>
+  </div>
+</body></html>

@@ -1,0 +1,71 @@
+<!-- @dsCard group="Brand" viewport="700x420" name="Logo — Verified Node" subtitle="Full asset set: lockup, stacked, wordmark, icon, social, light-canvas" -->
+<!DOCTYPE html>
+<html><head><meta charset="utf-8"><link rel="stylesheet" href="../styles.css">
+<style>
+  html,body{margin:0}
+  body{background:var(--df-bg-canvas);font-family:var(--font-sans);padding:18px;color:var(--text-primary)}
+  .grid{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}
+  .cell{background:var(--df-panel);border:1px solid var(--df-line);border-radius:var(--radius-2);padding:14px;display:flex;flex-direction:column;align-items:center;gap:10px;min-height:90px;justify-content:center}
+  .cell.light{background:var(--df-text-1);border-color:var(--df-text-2)}
+  .cap{font-family:var(--font-mono);font-size:10px;color:var(--text-muted);text-align:center;letter-spacing:0.04em}
+  .row{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-top:10px}
+  .sizes{display:flex;align-items:flex-end;gap:12px}
+</style>
+</head>
+<body>
+  <!-- Row 1: primary variants -->
+  <div class="grid">
+    <div class="cell" style="grid-column:span 2">
+      <img src="../assets/logo-lockup.svg" height="32" alt="primary lockup dark">
+      <span class="cap">primary lockup · dark canvas</span>
+    </div>
+    <div class="cell light" style="grid-column:span 2">
+      <img src="../assets/logo-lockup-light.svg" height="32" alt="primary lockup light">
+      <span class="cap" style="color:#3B4142">primary lockup · light canvas</span>
+    </div>
+  </div>
+
+  <!-- Row 2: stacked + wordmark -->
+  <div class="row">
+    <div class="cell">
+      <img src="../assets/logo-stacked.svg" width="72" alt="stacked dark">
+      <span class="cap">stacked · dark</span>
+    </div>
+    <div class="cell light">
+      <img src="../assets/logo-stacked-light.svg" width="72" alt="stacked light">
+      <span class="cap" style="color:#3B4142">stacked · light</span>
+    </div>
+    <div class="cell" style="grid-column:span 2">
+      <img src="../assets/logo-wordmark.svg" height="22" alt="wordmark">
+      <span class="cap">wordmark-alone · deck headers, nav</span>
+    </div>
+  </div>
+
+  <!-- Row 3: icon variants + social + scale test -->
+  <div class="row">
+    <div class="cell">
+      <div class="sizes">
+        <img src="../assets/logo-mark.svg" width="64" height="64" alt="80px">
+        <img src="../assets/logo-mark.svg" width="40" height="40" alt="40px">
+        <img src="../assets/logo-mark.svg" width="20" height="20" alt="20px">
+      </div>
+      <span class="cap">icon-alone · 64 / 40 / 20px</span>
+    </div>
+    <div class="cell light">
+      <img src="../assets/logo-mark-light.svg" width="52" height="52" alt="light mark">
+      <span class="cap" style="color:#3B4142">icon · light canvas</span>
+    </div>
+    <div class="cell">
+      <img src="../assets/logo-social.svg" width="64" height="64" alt="social avatar">
+      <span class="cap">social avatar · 1:1 square</span>
+    </div>
+    <div class="cell">
+      <div class="sizes">
+        <img src="../assets/favicon.svg" width="48" height="48" alt="favicon 48">
+        <img src="../assets/favicon.svg" width="32" height="32" alt="favicon 32">
+        <img src="../assets/favicon.svg" width="16" height="16" alt="favicon 16">
+      </div>
+      <span class="cap">favicon · simplified (symmetric gap ≤24px)</span>
+    </div>
+  </div>
+</body></html>

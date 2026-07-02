@@ -1,0 +1,17 @@
+<!-- @dsCard group="Spacing" viewport="700x160" name="Radii & Borders" subtitle="Square-leaning industrial radii; 1px line is the depth device" -->
+<!DOCTYPE html>
+<html><head><meta charset="utf-8"><link rel="stylesheet" href="../styles.css">
+<style>
+  html,body{margin:0}
+  body{background:var(--df-bg-canvas);font-family:var(--font-sans);padding:18px;color:var(--text-primary);display:flex;gap:16px;align-items:flex-end}
+  .b{width:96px;height:64px;background:var(--df-panel);border:1px solid var(--df-line);display:flex;align-items:center;justify-content:center;color:var(--text-secondary);font-size:12px}
+  .lab{font-family:var(--font-mono);font-size:11px;color:var(--text-muted);margin-top:6px;display:block;text-align:center}
+  .col{display:flex;flex-direction:column;align-items:center}
+</style></head>
+<body>
+  <div class="col"><div class="b" style="border-radius:0">0</div><span class="lab">--radius-0</span></div>
+  <div class="col"><div class="b" style="border-radius:2px">2px</div><span class="lab">--radius-1</span></div>
+  <div class="col"><div class="b" style="border-radius:3px">3px</div><span class="lab">--radius-2</span></div>
+  <div class="col"><div class="b" style="border-radius:4px">4px</div><span class="lab">--radius-3</span></div>
+  <div class="col"><div class="b" style="border:2px solid var(--df-amber);border-radius:2px">2px line</div><span class="lab">--bw-strong</span></div>
+</body></html>

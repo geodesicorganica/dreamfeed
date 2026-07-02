@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<!-- @template name="Pitch Deck" description="Dark-canvas slide deck — title, section, content, stat, quote, and close slides in the Dreamfeed brand register" -->
+<helmet>
+  <script src="./ds-base.js"></script>
+  <style>
+    @media (prefers-reduced-motion: no-preference) {
+      @keyframes df-in { from { transform: translateY(8px); } to { transform: translateY(0); } }
+      deck-stage section[data-deck-active] .df-in {
+        animation: df-in 200ms cubic-bezier(0.2,0,0.2,1) forwards;
+        animation-delay: 100ms;
+      }
+    }
+  </style>
+</helmet>
+
+<x-import component-from-global-scope="deck-stage" from="./deck-stage.js" width="1920" height="1080" hint-size="100%,100%">
+
+  <!-- ① TITLE SLIDE -->
+  <section data-label="Title" data-screen-label="01 Title" style="position:relative;width:100%;height:100%;background:#202426;display:flex;flex-direction:column;align-items:flex-start;justify-content:center;padding:0 180px;">
+    <!-- amber left rail -->
+    <div style="position:absolute;left:0;top:0;bottom:0;width:6px;background:#D6A65A;"></div>
+    <!-- fine CAD grid background -->
+    <div style="position:absolute;inset:0;background-image:linear-gradient(#3B4142 1px,transparent 1px),linear-gradient(90deg,#3B4142 1px,transparent 1px);background-size:60px 60px;opacity:0.18;pointer-events:none;"></div>
+
+    <!-- mark top-right -->
+    <div style="position:absolute;top:52px;right:72px;display:flex;align-items:center;gap:16px;opacity:0.6;">
+      <svg width="36" height="36" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="6" fill="#D8D5CC"/><path d="M 21.96 12.87 A 10 10 0 1 1 11.13 2.04 L 11.93 1.97 L 11.30 4.03 A 8 8 0 1 0 19.97 12.70 Z" fill="#D6A65A"/></svg>
+      <span style="font-family:'IBM Plex Mono',monospace;font-size:16px;font-weight:600;letter-spacing:0.01em;color:#D8D5CC;">Dreamfeed</span>
+    </div>
+
+    <div class="df-in" style="animation-delay:0ms;max-width:1100px;">
+      <!-- eyebrow -->
+      <div style="font-family:'IBM Plex Mono',monospace;font-size:16px;font-weight:400;letter-spacing:0.08em;text-transform:uppercase;color:#D6A65A;margin-bottom:28px;">Dreamfeed · 2026</div>
+      <!-- title -->
+      <h1 style="margin:0 0 24px;font-family:'IBM Plex Sans',sans-serif;font-size:86px;font-weight:700;line-height:1.05;color:#D8D5CC;letter-spacing:-0.01em;">Sovereign Execution<br>at the Executive Tier</h1>
+      <!-- subtitle -->
+      <p style="margin:0;font-family:'IBM Plex Sans',sans-serif;font-size:30px;font-weight:400;color:#B8BDB8;line-height:1.4;max-width:780px;">A deterministic operating cockpit for the Doer-Executive — topology, traceability, and runtime in one surface.</p>
+    </div>
+
+    <!-- bottom bar -->
+    <div style="position:absolute;bottom:0;left:0;right:0;height:1px;background:#3B4142;"></div>
+    <div style="position:absolute;bottom:36px;left:180px;font-family:'IBM Plex Mono',monospace;font-size:14px;color:#6A6E6A;letter-spacing:0.04em;">CONFIDENTIAL — DREAMFEED · 2026-06-21</div>
+  </section>
+
+  <!-- ② SECTION HEADER -->
+  <section data-label="Section" data-screen-label="02 Section" style="position:relative;width:100%;height:100%;background:#202426;display:flex;flex-direction:column;justify-content:center;padding:0 180px;">
+    <div style="position:absolute;left:0;top:0;bottom:0;width:6px;background:#D6A65A;"></div>
+    <div style="position:absolute;inset:0;background-image:linear-gradient(#3B4142 1px,transparent 1px),linear-gradient(90deg,#3B4142 1px,transparent 1px);background-size:60px 60px;opacity:0.12;pointer-events:none;"></div>
+
+    <div class="df-in" style="animation-delay:0ms;">
+      <div style="font-family:'IBM Plex Mono',monospace;font-size:80px;font-weight:600;color:#3B4142;line-height:1;margin-bottom:20px;letter-spacing:-0.02em;">01</div>
+      <h2 style="margin:0 0 20px;font-family:'IBM Plex Sans',sans-serif;font-size:72px;font-weight:700;color:#D8D5CC;line-height:1.1;letter-spacing:-0.01em;">The Problem</h2>
+      <div style="width:80px;height:3px;background:#D6A65A;"></div>
+      <p style="margin:24px 0 0;font-family:'IBM Plex Sans',sans-serif;font-size:26px;font-weight:400;color:#B8BDB8;max-width:720px;line-height:1.5;">A brief section subtitle that orients the audience. Two sentences maximum.</p>
+    </div>
+
+    <div style="position:absolute;bottom:36px;right:72px;">
+      <svg width="28" height="28" viewBox="0 0 24 24" fill="none" opacity="0.35"><circle cx="12" cy="12" r="6" fill="#D8D5CC"/><path d="M 21.96 12.87 A 10 10 0 1 1 11.13 2.04 L 11.93 1.97 L 11.30 4.03 A 8 8 0 1 0 19.97 12.70 Z" fill="#D6A65A"/></svg>
+    </div>
+  </section>
+
+  <!-- ③ CONTENT SLIDE (two-column) -->
+  <section data-label="Content" data-screen-label="03 Content" style="position:relative;width:100%;height:100%;background:#202426;display:flex;flex-direction:column;padding:80px 120px 64px;">
+    <div style="position:absolute;left:0;top:0;bottom:0;width:6px;background:#D6A65A;"></div>
+
+    <!-- slide header -->
+    <div class="df-in" style="animation-delay:0ms;margin-bottom:56px;padding-left:60px;">
+      <div style="font-family:'IBM Plex Mono',monospace;font-size:13px;font-weight:600;letter-spacing:0.1em;text-transform:uppercase;color:#D6A65A;margin-bottom:12px;">Command Center</div>
+      <h2 style="margin:0;font-family:'IBM Plex Sans',sans-serif;font-size:52px;font-weight:700;color:#D8D5CC;line-height:1.1;">Five Persistent Regions,<br>One Unified Object Model</h2>
+    </div>
+
+    <!-- two columns -->
+    <div class="df-in" style="animation-delay:60ms;display:grid;grid-template-columns:1fr 1fr;gap:48px;flex:1;padding-left:60px;">
+      <div style="display:flex;flex-direction:column;gap:28px;">
+        <div style="padding:28px;background:#272C2E;border:1px solid #3B4142;border-radius:3px;">
+          <div style="font-family:'IBM Plex Mono',monospace;font-size:12px;font-weight:600;letter-spacing:0.08em;text-transform:uppercase;color:#D6A65A;margin-bottom:12px;">Left Sidebar</div>
+          <div style="font-family:'IBM Plex Sans',sans-serif;font-size:22px;font-weight:500;color:#D8D5CC;margin-bottom:8px;">Object navigator</div>
+          <div style="font-family:'IBM Plex Sans',sans-serif;font-size:18px;color:#B8BDB8;line-height:1.5;">Work modes, pinned context, live telemetry status.</div>
+        </div>
+        <div style="padding:28px;background:#272C2E;border:1px solid #3B4142;border-radius:3px;">
+          <div style="font-family:'IBM Plex Mono',monospace;font-size:12px;font-weight:600;letter-spacing:0.08em;text-transform:uppercase;color:#D6A65A;margin-bottom:12px;">Bottom Panel</div>
+          <div style="font-family:'IBM Plex Sans',sans-serif;font-size:22px;font-weight:500;color:#D8D5CC;margin-bottom:8px;">Execution Trace Map</div>
+          <div style="font-family:'IBM Plex Sans',sans-serif;font-size:18px;color:#B8BDB8;line-height:1.5;">Every agent action, step, error, and timestamp in one ledger.</div>
+        </div>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:28px;">
+        <div style="padding:28px;background:#272C2E;border:1px solid #3B4142;border-radius:3px;">
+          <div style="font-family:'IBM Plex Mono',monospace;font-size:12px;font-weight:600;letter-spacing:0.08em;text-transform:uppercase;color:#D6A65A;margin-bottom:12px;">Main Canvas</div>
+          <div style="font-family:'IBM Plex Sans',sans-serif;font-size:22px;font-weight:500;color:#D8D5CC;margin-bottom:8px;">View Registry (6 lenses)</div>
+          <div style="font-family:'IBM Plex Sans',sans-serif;font-size:18px;color:#B8BDB8;line-height:1.5;">Dashboard · Topology · IDE · Table · Document · Board — same object model, different representations.</div>
+        </div>
+        <div style="padding:28px;background:#272C2E;border:1px solid #3B4142;border-radius:3px;">
+          <div style="font-family:'IBM Plex Mono',monospace;font-size:12px;font-weight:600;letter-spacing:0.08em;text-transform:uppercase;color:#D6A65A;margin-bottom:12px;">Right Inspector</div>
+          <div style="font-family:'IBM Plex Sans',sans-serif;font-size:22px;font-weight:500;color:#D8D5CC;margin-bottom:8px;">Provenance &amp; relations</div>
+          <div style="font-family:'IBM Plex Sans',sans-serif;font-size:18px;color:#B8BDB8;line-height:1.5;">Source, owner, timestamp, and all known relationships for any selected object.</div>
+        </div>
+      </div>
+    </div>
+
+    <div style="position:absolute;bottom:36px;right:72px;font-family:'IBM Plex Mono',monospace;font-size:13px;color:#6A6E6A;">03</div>
+  </section>
+
+  <!-- ④ BIG STAT SLIDE -->
+  <section data-label="Big Stat" data-screen-label="04 Big Stat" style="position:relative;width:100%;height:100%;background:#202426;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:80px 120px;">
+    <div style="position:absolute;left:0;top:0;bottom:0;width:6px;background:#D6A65A;"></div>
+
+    <div class="df-in" style="animation-delay:0ms;text-align:center;width:100%;">
+      <div style="display:flex;align-items:flex-start;justify-content:center;gap:80px;">
+        <div style="display:flex;flex-direction:column;align-items:center;gap:16px;">
+          <div style="font-family:'IBM Plex Mono',monospace;font-size:120px;font-weight:700;color:#D8D5CC;line-height:1;font-variant-numeric:tabular-nums;">11</div>
+          <div style="width:48px;height:3px;background:#D6A65A;"></div>
+          <div style="font-family:'IBM Plex Sans',sans-serif;font-size:22px;font-weight:400;color:#B8BDB8;letter-spacing:0.04em;text-transform:uppercase;">Tracked objects</div>
+        </div>
+        <div style="width:1px;background:#3B4142;height:200px;align-self:center;"></div>
+        <div style="display:flex;flex-direction:column;align-items:center;gap:16px;">
+          <div style="font-family:'IBM Plex Mono',monospace;font-size:120px;font-weight:700;color:#D6A65A;line-height:1;font-variant-numeric:tabular-nums;">38ms</div>
+          <div style="width:48px;height:3px;background:#D6A65A;"></div>
+          <div style="font-family:'IBM Plex Sans',sans-serif;font-size:22px;font-weight:400;color:#B8BDB8;letter-spacing:0.04em;text-transform:uppercase;">Topology rebuild</div>
+        </div>
+        <div style="width:1px;background:#3B4142;height:200px;align-self:center;"></div>
+        <div style="display:flex;flex-direction:column;align-items:center;gap:16px;">
+          <div style="font-family:'IBM Plex Mono',monospace;font-size:120px;font-weight:700;color:#6FBF8A;line-height:1;font-variant-numeric:tabular-nums;">1</div>
+          <div style="width:48px;height:3px;background:#6FBF8A;"></div>
+          <div style="font-family:'IBM Plex Sans',sans-serif;font-size:22px;font-weight:400;color:#B8BDB8;letter-spacing:0.04em;text-transform:uppercase;">Operator</div>
+        </div>
+      </div>
+    </div>
+
+    <div style="position:absolute;bottom:36px;left:180px;font-family:'IBM Plex Mono',monospace;font-size:13px;color:#6A6E6A;">LIVE — 2026-06-21 14:02Z</div>
+    <div style="position:absolute;bottom:36px;right:72px;font-family:'IBM Plex Mono',monospace;font-size:13px;color:#6A6E6A;">04</div>
+  </section>
+
+  <!-- ⑤ QUOTE SLIDE -->
+  <section data-label="Quote" data-screen-label="05 Quote" style="position:relative;width:100%;height:100%;background:#272C2E;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:80px 200px;">
+    <div style="position:absolute;left:0;top:0;bottom:0;width:6px;background:#D6A65A;"></div>
+    <div style="position:absolute;inset:0;background-image:linear-gradient(#3B4142 1px,transparent 1px),linear-gradient(90deg,#3B4142 1px,transparent 1px);background-size:60px 60px;opacity:0.1;pointer-events:none;"></div>
+
+    <div class="df-in" style="animation-delay:0ms;text-align:center;max-width:1200px;">
+      <div style="font-family:'IBM Plex Mono',monospace;font-size:80px;font-weight:700;color:#D6A65A;line-height:0.8;margin-bottom:32px;opacity:0.5;">"</div>
+      <blockquote style="margin:0;font-family:'IBM Plex Sans',sans-serif;font-size:44px;font-weight:500;color:#D8D5CC;line-height:1.35;letter-spacing:-0.01em;">The goal is not faster AI — it is deterministic runtime for the Doer-Executive: the operator always knows what ran, what was decided, and why.</blockquote>
+      <div style="margin-top:40px;display:flex;align-items:center;justify-content:center;gap:16px;">
+        <div style="width:32px;height:1px;background:#3B4142;"></div>
+        <span style="font-family:'IBM Plex Mono',monospace;font-size:16px;color:#AEB4AF;letter-spacing:0.04em;">Dreamfeed Brand Brief · 2026-06-21</span>
+        <div style="width:32px;height:1px;background:#3B4142;"></div>
+      </div>
+    </div>
+
+    <div style="position:absolute;bottom:36px;right:72px;font-family:'IBM Plex Mono',monospace;font-size:13px;color:#6A6E6A;">05</div>
+  </section>
+
+  <!-- ⑥ CLOSE SLIDE -->
+  <section data-label="Close" data-screen-label="06 Close" style="position:relative;width:100%;height:100%;background:#202426;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:80px 120px;">
+    <div style="position:absolute;left:0;top:0;bottom:0;width:6px;background:#D6A65A;"></div>
+    <div style="position:absolute;inset:0;background-image:linear-gradient(#3B4142 1px,transparent 1px),linear-gradient(90deg,#3B4142 1px,transparent 1px);background-size:60px 60px;opacity:0.18;pointer-events:none;"></div>
+
+    <div class="df-in" style="animation-delay:0ms;display:flex;flex-direction:column;align-items:center;gap:28px;text-align:center;">
+      <svg width="72" height="72" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="6" fill="#D8D5CC"/><path d="M 21.96 12.87 A 10 10 0 1 1 11.13 2.04 L 11.93 1.97 L 11.30 4.03 A 8 8 0 1 0 19.97 12.70 Z" fill="#D6A65A"/></svg>
+      <div style="font-family:'IBM Plex Mono',monospace;font-size:56px;font-weight:600;letter-spacing:0.01em;color:#D8D5CC;">Dreamfeed</div>
+      <div style="width:64px;height:2px;background:#3B4142;"></div>
+      <div style="font-family:'IBM Plex Sans',sans-serif;font-size:24px;font-weight:400;color:#AEB4AF;max-width:600px;line-height:1.5;">Sovereign Execution for the Doer-Executive</div>
+      <div style="margin-top:16px;font-family:'IBM Plex Mono',monospace;font-size:16px;color:#D6A65A;letter-spacing:0.04em;">dreamfeed.io</div>
+    </div>
+  </section>
+
+</x-import>
+
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{
+  &quot;$preview&quot;: { &quot;width&quot;: 1920, &quot;height&quot;: 1080 }
+}">class Component extends DCLogic {
+  componentDidMount() {
+    const fit = () => {
+      const stage = document.querySelector('deck-stage');
+      if (!stage || !stage._fit) return;
+      if (stage.offsetWidth > 0) { stage._fit(); }
+      else { requestAnimationFrame(fit); }
+    };
+    requestAnimationFrame(fit);
+  }
+}</script>
+</body>
+</html>

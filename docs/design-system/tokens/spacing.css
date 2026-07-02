@@ -1,0 +1,30 @@
+/* Dreamfeed spacing + layout tokens.
+   Dense by design. 4px base unit — aligns to the fine structural grid. */
+
+:root {
+  --space-0: 0;
+  --space-1: 2px;
+  --space-2: 4px;
+  --space-3: 6px;
+  --space-4: 8px;
+  --space-5: 12px;
+  --space-6: 16px;
+  --space-7: 20px;
+  --space-8: 24px;
+  --space-10: 32px;
+  --space-12: 40px;
+  --space-16: 56px;
+
+  /* persistent region sizing (Command Center five-region model) */
+  --region-sidebar-w: 240px;
+  --region-inspector-w: 320px;
+  --region-commandbar-h: 44px;
+  --region-bottompanel-h: 240px;
+
+  /* control heights — dense but >= legible; hit targets respected on touch */
+  --control-h-sm: 24px;
+  --control-h-md: 30px;
+  --control-h-lg: 36px;
+
+  --maxw-reading: 72ch; /* @kind spacing */
+}

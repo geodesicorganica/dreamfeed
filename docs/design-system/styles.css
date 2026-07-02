@@ -1,0 +1,9 @@
+/* Dreamfeed design system — global stylesheet entry point.
+   Consumers link THIS one file. Keep it as @import lines only.
+   Order: fonts first (so @font-face/family is available), then tokens. */
+
+@import url('./tokens/fonts.css');
+@import url('./tokens/colors.css');
+@import url('./tokens/typography.css');
+@import url('./tokens/spacing.css');
+@import url('./tokens/elevation.css');

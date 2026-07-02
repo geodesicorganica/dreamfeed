@@ -1,0 +1,46 @@
+# Verification Workflow
+
+## Before submitting for gate review
+
+1. **Run the portable test suite.**
+   ```
+   npm test
+   ```
+   All tests must pass (50 pass, 1 skip is expected). A regression here blocks
+   submission.
+
+2. **Run integration tests** if project-selection or state-parsing changed.
+   ```
+   DREAMFEED_STAKEPORT_ROOT=c:\Projects\stakeport_os npm run test:integration
+   ```
+   All 22 integration tests must pass.
+
+3. **Self-verify against the open punchlist.** Check
+   `agents/developer/outputs/command-center/` in the Stakeport OS repo for the
+   most recent acceptance punchlist. Confirm each item is still met in the
+   current cockpit.
+
+4. **Do not self-accept gate 5b or any founder gate.** Record findings as a
+   verification document and mark it "self-verified" — the founder makes the
+   final call.
+
+## Git hygiene before commit
+
+- Stage only files relevant to the change (no accidental `project-config.json`
+  commits — it is gitignored).
+- Commit `package-lock.json` alongside `package.json` changes.
+- Use descriptive commit messages scoped to the change:
+  `feat(topology): restore edge inventory lists below graph`
+  `docs: migrate Dreamfeed standalone source docs`
+  `fix(project-picker): default to stakeport_os when no config`
+
+## Constraint checklist
+
+Before any commit, confirm:
+
+- [ ] Localhost-only: no external network calls added.
+- [ ] GET-only: no POST/PUT/PATCH/DELETE routes added without approval.
+- [ ] Read-only: no source-file write paths introduced.
+- [ ] Six-object model: Gate C semantics unchanged.
+- [ ] Three-tier provenance: Canonical / Derived / Candidate labels preserved.
+- [ ] Self-hosted assets: no new CDN runtime dependencies.

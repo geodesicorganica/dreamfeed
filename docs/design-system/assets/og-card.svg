@@ -1,0 +1,31 @@
+<svg width="1200" height="630" viewBox="0 0 1200 630" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Dreamfeed — open graph card">
+  
+  <rect width="1200" height="630" fill="#202426"></rect>
+
+  
+  <defs>
+    <pattern id="grid" x="0" y="0" width="40" height="40" patternUnits="userSpaceOnUse">
+      <path d="M 40 0 L 0 0 0 40" fill="none" stroke="#3B4142" stroke-width="0.8"></path>
+    </pattern>
+  </defs>
+  <rect width="1200" height="630" fill="url(#grid)" opacity="0.35"></rect>
+
+  
+  <rect x="0" y="0" width="4" height="630" fill="#D6A65A"></rect>
+
+  
+  
+  <circle cx="340" cy="295" r="52" fill="#D8D5CC"></circle>
+  
+  <path d="M 422.25 295 A 82.25 82.25 0 1 1 398.51 237.22 L 400.90 239.64 L 392.47 243.19 A 73.75 73.75 0 1 0 413.75 295 Z" fill="#D6A65A"></path>
+
+  
+  <text x="492" y="278" font-family="&#39;IBM Plex Mono&#39;, ui-monospace, monospace" font-size="72" font-weight="600" letter-spacing="1" fill="#D8D5CC">Dreamfeed</text>
+  <text x="495" y="326" font-family="&#39;IBM Plex Mono&#39;, ui-monospace, monospace" font-size="22" font-weight="400" letter-spacing="2" fill="#AEB4AF">Command Center</text>
+
+  
+  <rect x="0" y="590" width="1200" height="1" fill="#3B4142"></rect>
+  <text x="492" y="616" font-family="&#39;IBM Plex Mono&#39;, ui-monospace, monospace" font-size="16" font-weight="400" letter-spacing="1" fill="#6A6E6A">dreamfeed.io</text>
+  <circle cx="460" cy="611" r="5" fill="#6FBF8A"></circle>
+  <text x="460" y="616" text-anchor="middle" font-family="&#39;IBM Plex Mono&#39;, ui-monospace, monospace" font-size="0" fill="none"></text>
+</svg>

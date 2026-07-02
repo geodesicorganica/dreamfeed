@@ -1,0 +1,39 @@
+/* Dreamfeed elevation, border + radius tokens.
+   The system is FLAT: depth is signalled by distinct gray planes and 1px lines,
+   NOT by glassmorphism, glow, or decorative drop shadows (forbidden patterns).
+   Radii are small/industrial — CAD-square, not soft consumer cards.
+   The only shadows allowed are for genuine transient overlays (menus, dialogs,
+   toasts) that float above the persistent regions. */
+
+:root {
+  /* ---- Border widths ---- */
+  --bw-hair: 1px;       /* the structural 1px grid line — the primary depth device */
+  --bw-strong: 2px;     /* active selection / focus emphasis */
+
+  /* ---- Radii (square-leaning; no pill cards) ---- */
+  --radius-0: 0;
+  --radius-1: 2px;      /* default control + panel radius */
+  --radius-2: 3px;      /* cards / wells */
+  --radius-3: 4px;      /* dialogs / menus */
+  --radius-pill: 999px; /* status dots + true pills only (small chips) */
+
+  /* ---- Overlay shadows (transient floating surfaces ONLY) ---- */
+  --shadow-overlay: 0 8px 24px rgba(0, 0, 0, 0.45), 0 2px 6px rgba(0, 0, 0, 0.35);
+  --shadow-menu: 0 6px 18px rgba(0, 0, 0, 0.40);
+
+  /* inset to seat sunken wells / inputs against the canvas, very subtle */
+  --shadow-inset-well: inset 0 1px 0 rgba(0, 0, 0, 0.25);
+
+  /* ---- Borders (semantic) ---- */
+  --border-default: var(--bw-hair) solid var(--df-line); /* @kind other */
+  --border-strong: var(--bw-hair) solid var(--border-strong, #4A5152); /* @kind other */
+
+  /* ---- Focus ring (always visible for keyboard nav) ---- */
+  --ring-focus: 0 0 0 2px var(--df-bg-canvas), 0 0 0 3px var(--df-cyan);
+
+  /* ---- Motion (crisp, <100ms local ack; no springy/atmospheric easing) ---- */
+  --ease-crisp: cubic-bezier(0.2, 0, 0.2, 1); /* @kind other */
+  --dur-instant: 80ms; /* @kind other */
+  --dur-quick: 120ms; /* @kind other */
+  --dur-state: 160ms; /* @kind other */
+}

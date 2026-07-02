@@ -1,0 +1,93 @@
+<!-- @dsCard group="Brand" viewport="700x560" name="Brand Board" subtitle="Press kit — mark, palette, type specimen, all lockups on one surface" -->
+<!DOCTYPE html>
+<html><head>
+<meta charset="utf-8">
+<link rel="stylesheet" href="../styles.css">
+<style>
+  html,body{margin:0}
+  body{background:var(--df-bg-canvas);font-family:var(--font-sans);color:var(--text-primary);padding:20px;display:flex;flex-direction:column;gap:16px}
+  .row{display:flex;gap:12px}
+  .cell{background:var(--df-panel);border:1px solid var(--df-line);border-radius:var(--radius-2);padding:14px;display:flex;flex-direction:column;gap:10px}
+  .over{font-size:10px;font-weight:600;letter-spacing:0.08em;text-transform:uppercase;color:var(--text-muted)}
+  .light-cell{background:var(--df-text-1);border:1px solid var(--df-text-2);border-radius:var(--radius-2);padding:14px;display:flex;flex-direction:column;gap:10px}
+  .light-cell .over{color:#6A6E6A}
+  .swatches{display:flex;gap:8px}
+  .sw{flex:1;height:48px;border-radius:var(--radius-1)}
+  .sw-label{font-family:var(--font-mono);font-size:10px;color:var(--text-muted);margin-top:4px}
+  .lockup-row{display:flex;align-items:center;gap:20px;flex-wrap:wrap}
+  .type-specimen{display:flex;flex-direction:column;gap:4px}
+  .t-row{display:flex;align-items:baseline;gap:12px;border-bottom:1px solid var(--df-line);padding:4px 0}
+  .t-row:last-child{border-bottom:none}
+  .t-sz{font-family:var(--font-mono);font-size:10px;color:var(--text-muted);width:60px;flex:0 0 auto}
+</style>
+</head>
+<body>
+
+  <!-- Row 1: Mark at scale + color palette -->
+  <div class="row">
+    <div class="cell" style="flex:0 0 auto;align-items:center;justify-content:center;min-width:140px">
+      <span class="over">Mark</span>
+      <img src="../assets/logo-mark.svg" width="80" height="80" alt="Dreamfeed mark">
+      <div style="display:flex;gap:10px;align-items:flex-end">
+        <img src="../assets/logo-mark.svg" width="40" height="40" alt="">
+        <img src="../assets/logo-mark.svg" width="24" height="24" alt="">
+        <img src="../assets/favicon.svg" width="20" height="20" alt="">
+      </div>
+    </div>
+    <div class="cell" style="flex:1">
+      <span class="over">Palette</span>
+      <div class="swatches">
+        <div><div class="sw" style="background:#202426;border:1px solid var(--df-line)"></div><div class="sw-label">#202426<br>Canvas</div></div>
+        <div><div class="sw" style="background:#272C2E"></div><div class="sw-label">#272C2E<br>Panel</div></div>
+        <div><div class="sw" style="background:#303638"></div><div class="sw-label">#303638<br>Raised</div></div>
+        <div><div class="sw" style="background:#D8D5CC"></div><div class="sw-label">#D8D5CC<br>Text-1</div></div>
+        <div><div class="sw" style="background:#D6A65A"></div><div class="sw-label">#D6A65A<br>Amber</div></div>
+        <div><div class="sw" style="background:#6FBF8A"></div><div class="sw-label">#6FBF8A<br>Green</div></div>
+        <div><div class="sw" style="background:#7ECFD1"></div><div class="sw-label">#7ECFD1<br>Cyan</div></div>
+        <div><div class="sw" style="background:#E06B64"></div><div class="sw-label">#E06B64<br>Red</div></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Row 2: Lockups dark + light -->
+  <div class="row">
+    <div class="cell" style="flex:1;gap:14px">
+      <span class="over">Lockups — dark canvas</span>
+      <div class="lockup-row">
+        <img src="../assets/logo-lockup.svg" height="28" alt="primary lockup">
+        <img src="../assets/logo-wordmark.svg" height="18" alt="wordmark">
+        <img src="../assets/logo-stacked.svg" width="80" alt="stacked">
+      </div>
+    </div>
+    <div class="light-cell" style="flex:1;gap:14px">
+      <span class="over" style="color:#6A6E6A">Lockups — light canvas</span>
+      <div class="lockup-row">
+        <img src="../assets/logo-lockup-light.svg" height="28" alt="light lockup">
+        <img src="../assets/logo-mark-light.svg" width="32" alt="light mark">
+        <img src="../assets/logo-stacked-light.svg" width="68" alt="stacked light">
+      </div>
+    </div>
+  </div>
+
+  <!-- Row 3: Type + social avatar -->
+  <div class="row">
+    <div class="cell" style="flex:1">
+      <span class="over">Type specimen</span>
+      <div class="type-specimen">
+        <div class="t-row"><span class="t-sz">Mono 600</span><span style="font-family:var(--font-mono);font-size:22px;font-weight:600;color:var(--text-primary)">Dreamfeed</span></div>
+        <div class="t-row"><span class="t-sz">Mono 400</span><span style="font-family:var(--font-mono);font-size:13px;color:var(--text-secondary)">repo/src/workgraph.js · 14:02:11Z</span></div>
+        <div class="t-row"><span class="t-sz">Sans 600</span><span style="font-family:var(--font-sans);font-size:16px;font-weight:600">Topology of Leverage</span></div>
+        <div class="t-row"><span class="t-sz">Sans 400</span><span style="font-family:var(--font-sans);font-size:13px;color:var(--text-secondary)">Region header · Inspector · Bottom panel</span></div>
+      </div>
+    </div>
+    <div class="cell" style="flex:0 0 auto;align-items:center;justify-content:center;min-width:120px">
+      <span class="over">Social</span>
+      <img src="../assets/logo-social.svg" width="80" height="80" alt="social avatar">
+    </div>
+    <div class="cell" style="flex:0 0 auto;align-items:center;justify-content:center;min-width:130px">
+      <span class="over">OG card</span>
+      <img src="../assets/og-card.svg" style="width:120px;height:auto;border-radius:var(--radius-1)" alt="OG card preview">
+    </div>
+  </div>
+
+</body></html>

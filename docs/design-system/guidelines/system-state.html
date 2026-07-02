@@ -1,0 +1,97 @@
+<!-- @dsCard group="Brand" viewport="700x380" name="System State Language" subtitle="12 canonical badges · signal table · alert interlock · §10" -->
+<!DOCTYPE html>
+<html><head>
+<meta charset="utf-8">
+<link rel="stylesheet" href="../styles.css">
+<style>
+  html,body{margin:0}
+  body{background:var(--df-bg-canvas);font-family:var(--font-sans);color:var(--text-primary);padding:16px;display:flex;flex-direction:column;gap:12px}
+  .over{font-size:10px;font-weight:600;letter-spacing:0.08em;text-transform:uppercase;color:var(--text-muted);margin-bottom:8px}
+  .cell{background:var(--df-panel);border:1px solid var(--df-line);border-radius:var(--radius-2);padding:12px 14px}
+
+  /* Badge row */
+  .badges{display:flex;flex-wrap:wrap;gap:6px}
+  .pill{display:inline-flex;align-items:center;gap:5px;height:20px;padding:0 8px 0 7px;border-radius:var(--radius-1);border:1px solid var(--df-line);font-size:11px;font-weight:600;letter-spacing:0.06em;color:var(--text-primary);white-space:nowrap}
+  .dot{width:7px;height:7px;border-radius:50%;flex:0 0 auto}
+
+  /* Signal table */
+  table{width:100%;border-collapse:collapse}
+  th{font-size:10px;font-weight:600;letter-spacing:0.06em;text-transform:uppercase;color:var(--text-muted);text-align:left;padding:5px 10px;border-bottom:1px solid var(--df-line)}
+  td{font-size:11.5px;padding:5px 10px;border-bottom:1px solid var(--df-line);color:var(--text-secondary);vertical-align:top}
+  tr:last-child td{border-bottom:none}
+  td:first-child{font-family:var(--font-mono);font-size:11px;font-weight:600;color:var(--text-primary);white-space:nowrap}
+  td:last-child{font-family:var(--font-mono);font-size:11px}
+
+  /* Interlock note */
+  .note{font-size:11.5px;color:var(--text-muted);line-height:1.55;padding:10px 14px;border:1px solid var(--df-line);border-radius:var(--radius-2);background:var(--df-panel)}
+  .note strong{color:var(--text-secondary);font-weight:600}
+</style>
+</head>
+<body>
+
+  <!-- Canonical badge vocabulary -->
+  <div>
+    <div class="over">Canonical state badges — v1.1 §10</div>
+    <div class="badges">
+      <span class="pill"><span class="dot" style="background:var(--df-green)"></span>LIVE</span>
+      <span class="pill"><span class="dot" style="background:var(--df-green)"></span>BUILD·OK</span>
+      <span class="pill"><span class="dot" style="background:var(--df-green)"></span>VERIFIED</span>
+      <span class="pill"><span class="dot" style="background:var(--df-amber)"></span>ACTIVE</span>
+      <span class="pill"><span class="dot" style="background:var(--df-amber)"></span>RUNNING</span>
+      <span class="pill"><span class="dot" style="background:var(--df-amber)"></span>QUEUED</span>
+      <span class="pill"><span class="dot" style="background:var(--df-red)"></span>HALTED</span>
+      <span class="pill"><span class="dot" style="background:var(--df-red)"></span>FAILED</span>
+      <span class="pill"><span class="dot" style="background:var(--df-cyan)"></span>SELECTED</span>
+      <span class="pill"><span class="dot" style="background:var(--df-cyan)"></span>INFO</span>
+      <span class="pill"><span class="dot" style="background:var(--text-muted)"></span>IDLE</span>
+      <span class="pill"><span class="dot" style="background:var(--text-muted)"></span>LOCKED</span>
+      <span class="pill"><span class="dot" style="background:var(--text-muted)"></span>ARCHIVED</span>
+    </div>
+  </div>
+
+  <!-- Signal table -->
+  <div class="cell">
+    <div class="over">Signal → meaning → behavior → flash rate</div>
+    <table>
+      <thead><tr><th>Signal</th><th>Meaning</th><th>Behavior</th><th>Flash rate</th></tr></thead>
+      <tbody>
+        <tr>
+          <td style="color:var(--df-amber)">AMBER</td>
+          <td>Active process · warning · queue delay</td>
+          <td>Persists while condition is live</td>
+          <td>≤ 2 Hz (observe)</td>
+        </tr>
+        <tr>
+          <td style="color:var(--df-red)">RED</td>
+          <td>Halted · failure · blockage</td>
+          <td>Holds until acknowledged; demands intervention</td>
+          <td>3–5 Hz (critical)</td>
+        </tr>
+        <tr>
+          <td style="color:var(--df-green)">GREEN</td>
+          <td>Build success · handoff · LIVE state</td>
+          <td>Transient on action success; persistent on record &amp; LIVE</td>
+          <td>none</td>
+        </tr>
+        <tr>
+          <td style="color:var(--df-cyan)">CYAN</td>
+          <td>Selection · link · focus ring · info</td>
+          <td>Persists while selected or focused; never an alert</td>
+          <td>none</td>
+        </tr>
+        <tr>
+          <td style="color:var(--text-muted)">NEUTRAL</td>
+          <td>Nominal — compiling, routing, syncing</td>
+          <td>Silent. No color, no notification</td>
+          <td>none</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- Alert interlock -->
+  <div class="note">
+    <strong>Alert interlock</strong> — Flashing stops immediately when cursor enters or keyboard focus moves into the affected block. The persistent text state and trace remain available after motion stops. Every flashing alert must simultaneously render a non-flashing equivalent naming: severity · affected object · diagnostic condition · timestamp · next available action.
+  </div>
+
+</body></html>

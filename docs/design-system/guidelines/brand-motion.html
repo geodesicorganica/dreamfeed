@@ -1,0 +1,107 @@
+<!-- @dsCard group="Brand" viewport="700x420" name="Motion — Easing & Timing" subtitle="Crisp <100ms ack; no spring, no atmosphere; reduced-motion safe" -->
+<!DOCTYPE html>
+<html><head>
+<meta charset="utf-8">
+<link rel="stylesheet" href="../styles.css">
+<style>
+  html,body{margin:0}
+  body{background:var(--df-bg-canvas);font-family:var(--font-sans);color:var(--text-primary);padding:20px;display:flex;flex-direction:column;gap:14px}
+  .row{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+  .cell{background:var(--df-panel);border:1px solid var(--df-line);border-radius:var(--radius-2);padding:14px}
+  .over{font-size:10px;font-weight:600;letter-spacing:0.08em;text-transform:uppercase;color:var(--text-muted);margin-bottom:10px}
+  table{width:100%;border-collapse:collapse}
+  th{font-size:10px;font-weight:600;letter-spacing:0.06em;text-transform:uppercase;color:var(--text-muted);text-align:left;padding:5px 8px;border-bottom:1px solid var(--df-line)}
+  td{font-family:var(--font-mono);font-size:11px;color:var(--text-secondary);padding:5px 8px;border-bottom:1px solid var(--df-line)}
+  td:last-child{font-family:var(--font-sans);font-size:11px}
+  tr:last-child td{border-bottom:none}
+  td:first-child{color:var(--text-primary)}
+
+  /* Animated demo row */
+  .anim-row{display:flex;align-items:center;gap:14px;height:32px}
+  .anim-track{flex:1;height:4px;background:var(--df-panel-raised);border-radius:1px;position:relative;overflow:visible}
+  .anim-knob{position:absolute;top:-6px;width:16px;height:16px;border-radius:50%;background:var(--df-text-1);animation:slide-crisp var(--dur) var(--ease-crisp) infinite alternate}
+  .anim-label{font-family:var(--font-mono);font-size:11px;color:var(--text-muted);width:60px}
+  @keyframes slide-crisp{from{left:0}to{left:calc(100% - 16px)}}
+  @media(prefers-reduced-motion:reduce){.anim-knob{animation:none;left:50%}}
+
+  .rule{font-size:11.5px;color:var(--text-secondary);line-height:1.55;padding:4px 0;border-bottom:1px solid var(--df-line)}
+  .rule:last-child{border-bottom:none}
+  .token{font-family:var(--font-mono);font-size:11px;color:var(--df-amber)}
+  .flash-table td:first-child{color:var(--text-primary);font-family:var(--font-sans);font-size:11px}
+  .flash-table td{font-family:var(--font-sans);font-size:11px}
+  .flash-table td:nth-child(2){font-family:var(--font-mono);color:var(--df-amber)}
+</style>
+</head>
+<body>
+
+  <div class="row">
+    <!-- Token table + live demos -->
+    <div class="cell">
+      <div class="over">Motion tokens</div>
+      <table>
+        <thead><tr><th>Token</th><th>Value</th><th>Use</th></tr></thead>
+        <tbody>
+          <tr><td>--ease-crisp</td><td>cubic-bezier(0.2,0,0.2,1)</td><td>all transitions</td></tr>
+          <tr><td>--dur-instant</td><td>80ms</td><td>hover, press ack</td></tr>
+          <tr><td>--dur-quick</td><td>120ms</td><td>toggle, knob</td></tr>
+          <tr><td>--dur-state</td><td>160ms</td><td>state-change overlay</td></tr>
+        </tbody>
+      </table>
+      <div style="margin-top:14px;display:flex;flex-direction:column;gap:10px">
+        <div class="anim-row" style="--dur:80ms">
+          <span class="anim-label">80ms</span>
+          <div class="anim-track"><div class="anim-knob"></div></div>
+          <span style="font-family:var(--font-mono);font-size:10px;color:var(--text-muted)">instant</span>
+        </div>
+        <div class="anim-row" style="--dur:120ms">
+          <span class="anim-label">120ms</span>
+          <div class="anim-track"><div class="anim-knob"></div></div>
+          <span style="font-family:var(--font-mono);font-size:10px;color:var(--text-muted)">quick</span>
+        </div>
+        <div class="anim-row" style="--dur:160ms">
+          <span class="anim-label">160ms</span>
+          <div class="anim-track"><div class="anim-knob"></div></div>
+          <span style="font-family:var(--font-mono);font-size:10px;color:var(--text-muted)">state</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Rules -->
+    <div class="cell">
+      <div class="over">Rules</div>
+      <div class="rule">All transitions use <span class="token">--ease-crisp</span>. No spring physics, no atmospheric bounce, no perceived smoothness for its own sake.</div>
+      <div class="rule">Local acknowledgement under 100ms. The operator must see state change before they lift their finger — <span class="token">--dur-instant: 80ms</span> is the floor.</div>
+      <div class="rule">All animations gated on <span class="token">@media (prefers-reduced-motion: no-preference)</span>. The static end-state is always the readable, complete state.</div>
+      <div class="rule" style="color:var(--df-red)">Forbidden: loading skeletons that shift layout, infinite decorative loops, parallax, scroll animations, entry reveals.</div>
+    </div>
+  </div>
+
+  <!-- Flash coding table -->
+  <div class="cell">
+    <div class="over">Flash coding — restricted to mission-critical alerts only</div>
+    <table class="flash-table">
+      <thead><tr><th>Condition</th><th>Rate</th><th>Interlock</th><th>Non-flashing equivalent (required)</th></tr></thead>
+      <tbody>
+        <tr>
+          <td>Critical error — immediate intervention required</td>
+          <td>3–5 Hz</td>
+          <td>Stops on focus / hover into the block</td>
+          <td>Severity · affected object · condition · timestamp · next action</td>
+        </tr>
+        <tr>
+          <td>Latency / queue delay — standard observation</td>
+          <td>≤ 2 Hz</td>
+          <td>Stops on focus / hover into the block</td>
+          <td>Same fields as above</td>
+        </tr>
+        <tr>
+          <td>Any other UI event</td>
+          <td style="color:var(--text-muted)">none</td>
+          <td style="color:var(--text-muted)">—</td>
+          <td style="color:var(--text-muted)">—</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+</body></html>

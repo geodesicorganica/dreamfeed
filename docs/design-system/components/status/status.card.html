@@ -1,0 +1,80 @@
+<!-- @dsCard group="Components" viewport="700x320" name="Status — StatePill, TraceRow, KeyValue" subtitle="State signaling: dot + text + timestamp, never color alone" -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<link rel="stylesheet" href="../../styles.css">
+<style>
+  html, body { margin: 0; }
+  body { background: var(--df-bg-canvas); color: var(--text-primary); font-family: var(--font-sans); padding: 18px; }
+  .lbl { font-size: 11px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-muted); margin-bottom: 8px; }
+  .row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .cols { display: grid; grid-template-columns: 1fr 1fr; gap: 22px; align-items: start; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+<script src="../../_ds_bundle.js"></script>
+<script type="text/babel" data-presets="react">
+  const { StatePill, TraceRow, KeyValue, Panel } = window.DreamfeedDesignSystem_7401df;
+  function Demo() {
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
+        <div>
+          <div className="lbl">StatePill — canonical states v1.1 §10</div>
+          <div className="row" style={{ marginBottom: 6 }}>
+            <StatePill state="live" timestamp="14:02:11Z" />
+            <StatePill state="buildok" filled />
+            <StatePill state="verified" />
+            <StatePill state="passed" />
+            <StatePill state="accepted" />
+          </div>
+          <div className="row" style={{ marginBottom: 6 }}>
+            <StatePill state="running" timestamp="step 4/7" />
+            <StatePill state="active" timestamp="sprint 112" />
+            <StatePill state="queued" timestamp="+3 ahead" />
+            <StatePill state="warning" filled />
+          </div>
+          <div className="row" style={{ marginBottom: 6 }}>
+            <StatePill state="halted" filled />
+            <StatePill state="failed" />
+            <StatePill state="blocked" />
+          </div>
+          <div className="row">
+            <StatePill state="selected" />
+            <StatePill state="info" />
+            <StatePill state="pending" />
+            <StatePill state="idle" />
+            <StatePill state="locked" />
+            <StatePill state="archived" timestamp="2026-06-21" />
+            <StatePill state="stale" timestamp="6h ago" />
+          </div>
+        </div>
+        <div className="cols">
+          <Panel surface="panel" title="Execution Trace Map" meta="07 events" padded={false}>
+            <div style={{ padding: '6px 0' }}>
+              <TraceRow status="ok" label="Audit passed" detail="repo/src/workgraph.js" timestamp="14:02:09Z" />
+              <TraceRow status="active" label="Deploy running" detail="step 4/7" timestamp="14:02:11Z" selected />
+              <TraceRow status="warn" label="Queue delay" detail="agent-routing" timestamp="14:02:03Z" />
+              <TraceRow status="error" label="Validation failed" detail="DF-LIVE-ROLLBACK-001" timestamp="14:01:55Z" />
+              <TraceRow status="muted" label="Awaiting input" detail="clarification-22" timestamp="14:01:40Z" />
+            </div>
+          </Panel>
+          <Panel surface="panel" title="Object Provenance">
+            <KeyValue label="Type" value="Strategic initiative" mono={false} />
+            <KeyValue label="State" value="ACTIVE" accent="amber" />
+            <KeyValue label="Owner" value="founder" />
+            <KeyValue label="Source" value="docs/strategy/ROADMAP.md" />
+            <KeyValue label="Last observed" value="2026-06-21 14:02Z" />
+          </Panel>
+        </div>
+      </div>
+    );
+  }
+  ReactDOM.createRoot(document.getElementById('root')).render(<Demo />);
+</script>
+</body>
+</html>

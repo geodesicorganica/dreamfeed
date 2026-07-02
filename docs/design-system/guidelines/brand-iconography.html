@@ -1,0 +1,35 @@
+<!-- @dsCard group="Brand" viewport="700x220" name="Iconography — Lucide (substitution)" subtitle="Geometric line icons, ~1.75px stroke; architectural/control register" -->
+<!DOCTYPE html>
+<html><head><meta charset="utf-8"><link rel="stylesheet" href="../styles.css">
+<style>
+  html,body{margin:0}
+  body{background:var(--df-bg-canvas);font-family:var(--font-sans);padding:18px;color:var(--text-secondary)}
+  .grid{display:grid;grid-template-columns:repeat(8,1fr);gap:14px}
+  .i{display:flex;flex-direction:column;align-items:center;gap:7px}
+  .i svg{width:22px;height:22px;color:var(--text-primary)}
+  .i span{font-size:10px;font-family:var(--font-mono);color:var(--text-muted)}
+  .note{font-size:11px;color:var(--text-muted);margin-top:16px}
+</style></head>
+<body>
+  <div class="grid">
+    <div class="i"><i data-lucide="share-2"></i><span>topology</span></div>
+    <div class="i"><i data-lucide="git-branch"></i><span>branch</span></div>
+    <div class="i"><i data-lucide="terminal"></i><span>ide</span></div>
+    <div class="i"><i data-lucide="layout-dashboard"></i><span>dashboard</span></div>
+    <div class="i"><i data-lucide="table-2"></i><span>table</span></div>
+    <div class="i"><i data-lucide="activity"></i><span>trace</span></div>
+    <div class="i"><i data-lucide="sliders-horizontal"></i><span>override</span></div>
+    <div class="i"><i data-lucide="rotate-ccw"></i><span>rollback</span></div>
+    <div class="i"><i data-lucide="file-code-2"></i><span>source</span></div>
+    <div class="i"><i data-lucide="folder"></i><span>folder</span></div>
+    <div class="i"><i data-lucide="circle-check"></i><span>verified</span></div>
+    <div class="i"><i data-lucide="triangle-alert"></i><span>observe</span></div>
+    <div class="i"><i data-lucide="octagon-x"></i><span>halt</span></div>
+    <div class="i"><i data-lucide="clock"></i><span>freshness</span></div>
+    <div class="i"><i data-lucide="search"></i><span>command</span></div>
+    <div class="i"><i data-lucide="pin"></i><span>pin</span></div>
+  </div>
+  <div class="note">Substitution flag: no icon set ships in the Dreamfeed brand yet. Lucide (geometric, even stroke) is the closest CDN match to the CAD/SCADA register. Replace with a bespoke set when commissioned.</div>
+  <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
+  <script>lucide.createIcons({ attrs: { 'stroke-width': 1.75 } });</script>
+</body></html>

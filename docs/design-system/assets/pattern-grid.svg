@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 40 40">
+  <title>Dreamfeed CAD grid tile</title>
+  <desc>40x40px repeating unit. Use as background-image with background-size:40px 40px on topology canvas surfaces only. Color: df-line #3B4142.</desc>
+  <path d="M 40 0 L 0 0 0 40" fill="none" stroke="#3B4142" stroke-width="1"></path>
+</svg>
