@@ -38,6 +38,11 @@ DREAMFEED_STAKEPORT_ROOT=c:\Projects\stakeport_os npm run test:integration
 
 Runs the integration test suite against a real Stakeport OS repo.
 
+Full-pipeline coverage that does **not** need a Stakeport checkout runs inside
+`npm test` via the checked-in fixture at `test/fixtures/generic-governance/`
+(`test/fixture-governance.test.js`) — this is what CI exercises. The fixture is
+also a governance-shaped demo repo the cockpit can be pointed at.
+
 ## When to run tests
 
 - After any change to `src/` or `public/app.js`: run `npm test`.
