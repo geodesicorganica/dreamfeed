@@ -3,6 +3,7 @@
 **Date:** 2026-07-01
 **Status:** Resolved — completed
 **Owner:** Founder
+**GitHub:** https://github.com/geodesicorganica/dreamfeed
 
 ## Decision
 

@@ -4,6 +4,9 @@ This folder is the source of truth for Dreamfeed brand, product, design, and
 operational documentation. It was populated 2026-07-01 as part of D29
 standalone extraction.
 
+**GitHub:** https://github.com/geodesicorganica/dreamfeed
+**Local:** `C:\Projects\dreamfeed-command-center`
+
 ## Authority Order
 
 When guidance conflicts, resolve in this order:
