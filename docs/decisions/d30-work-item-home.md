@@ -48,18 +48,22 @@ second, Dreamfeed-native schema — work that design partners will force in
 Phase 1.4 regardless. Deferring `os/` to that milestone gives up nothing except
 premature structure.
 
-## Seed backlog (create as GitHub Issues once `gh auth login` is done)
+## Seed backlog (created 2026-07-02)
 
-1. **Parser generalization: Dreamfeed-native governance schema** — supports a
-   second schema beyond Stakeport's; unlocks the deferred `os/` layer and
+1. [#1](https://github.com/geodesicorganica/dreamfeed/issues/1) **Parser
+   generalization: Dreamfeed-native governance schema** — supports a second
+   schema beyond Stakeport's; unlocks the deferred `os/` layer and
    design-partner onboarding. (D30 criterion.)
-2. **Phase 1.4 validation kit** — grow `test/fixtures/generic-governance/`
-   into the onboarding/acceptance fixture; add onboarding script, acceptance
-   protocol, feedback capture.
-3. **T29 latency benchmark** — the sub-100ms interaction target in the
-   traceability matrix requires a measured benchmark; none exists yet.
-4. **Gate 5b punchlist migration** — when gate 5b closes in stakeport_os,
-   migrate any surviving items here and retire the cross-repo pointer in
+2. [#2](https://github.com/geodesicorganica/dreamfeed/issues/2) **Phase 1.4
+   validation kit** — grow `test/fixtures/generic-governance/` into the
+   onboarding/acceptance fixture; add onboarding script, acceptance protocol,
+   feedback capture.
+3. [#3](https://github.com/geodesicorganica/dreamfeed/issues/3) **T29 latency
+   benchmark** — the sub-100ms interaction target in the traceability matrix
+   requires a measured benchmark; none exists yet.
+4. [#4](https://github.com/geodesicorganica/dreamfeed/issues/4) **Gate 5b
+   punchlist migration** — when gate 5b closes in stakeport_os, migrate any
+   surviving items here and retire the cross-repo pointer in
    `docs/workflows/verification-workflow.md`.
 
 ## Bounded exception
