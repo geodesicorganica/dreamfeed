@@ -45,17 +45,41 @@ test('explicit lens registry maps every retained Command Center tab', () => {
   const html = read('public', 'index.html');
   const app = read('public', 'app.js');
   const registry = lensRegistry();
-  assert.deepEqual(Object.keys(registry), ['Dashboard', 'Board', 'Table', 'Document', 'IDE', 'Topology']);
+  assert.deepEqual(Object.keys(registry), ['Queue', 'Dashboard', 'Board', 'Table', 'Document', 'IDE', 'Topology']);
+  assert.deepEqual(registry.Queue, { tabs: ['daily', 'work'], defaultTab: 'daily' });
   assert.deepEqual(registry.Dashboard, { tabs: ['overview', 'learning'], defaultTab: 'overview' });
   assert.deepEqual(registry.Board, { tabs: ['board', 'queue', 'milestones'], defaultTab: 'board' });
   assert.deepEqual(registry.Table, { tabs: ['sources', 'health'], defaultTab: 'sources' });
   assert.deepEqual(registry.Document, { tabs: ['roadmap', 'review'], defaultTab: 'review' });
   assert.deepEqual(registry.IDE, { tabs: ['review'], defaultTab: 'review', inspectorMode: 'evidence' });
   assert.deepEqual(registry.Topology, { tabs: ['topology'], defaultTab: 'topology' });
-  for (const tab of ['overview', 'board', 'queue', 'topology', 'roadmap', 'milestones', 'review', 'learning', 'sources', 'health']) {
+  for (const tab of ['daily', 'work', 'overview', 'board', 'queue', 'topology', 'roadmap', 'milestones', 'review', 'learning', 'sources', 'health']) {
     assert.match(html, new RegExp(`data-tab="${tab}"`), `retained module tab is missing: ${tab}`);
   }
   assert.match(app, /function goLens\(lens\)/, 'lens control resolves to a retained default tab');
+});
+
+test('Gate G surfaces: workstream navigator, queue lens, approval dialog, assistant dock, status strip', () => {
+  const html = read('public', 'index.html');
+  const app = read('public', 'app.js');
+  assert.match(html, /id="workNav"/, 'Goals/Operations navigator region exists in the sidebar');
+  assert.match(html, /id="approvalDialog"/, 'approval is an explicit dialog, never implicit');
+  assert.match(html, /id="apConfirm"/, 'founder-class approvals expose the typed-confirmation input');
+  assert.match(app, /function renderDaily\(\)/, 'daily queue lens exists');
+  assert.match(app, /function renderWork\(\)/, 'work detail lens exists');
+  assert.match(app, /function renderWorkNav\(\)/, 'workstream navigator renders Goals and Operations trees');
+  assert.match(app, /function renderAssistant\(/, 'assistant dock exists as a right-region mode');
+  assert.match(app, /data-right-mode="assistant"/, 'inspector ⇄ assistant mode toggle exists');
+  for (const mode of ['chief-of-staff', 'translator', 'chat']) {
+    assert.ok(app.includes(`'${mode}'`), `assistant mode present: ${mode}`);
+  }
+  assert.match(app, /function renderStatusStrip\(\)/, 'bottom status strip exists');
+  assert.match(app, /function postMutation\(/, 'mutations go through one guarded POST helper');
+  assert.match(app, /'X-Dreamfeed-Token': actionToken/, 'mutation helper carries the action token header');
+  assert.doesNotMatch(app, /fetch\([^)]*token=/, 'no token ever appears in a query string');
+  assert.match(app, /\/api\/work\/tasks\/transition/, 'task transitions use the governed sugar route');
+  assert.match(app, /\/api\/plans\/\$\{encodeURIComponent\(pendingPlan\.id\)\}\/approve/, 'approval posts to the lifecycle route');
+  assert.match(app, /streamType/, 'queue rows keep their goal/operation stream identity');
 });
 
 test('selection is derived over existing state and routes evidence into the shared inspector', () => {
@@ -79,7 +103,7 @@ test('selection is derived over existing state and routes evidence into the shar
   assert.match(app, /requestId !== evidenceRequestId \|\| view\.evidence\?\.path !== path/, 'stale evidence responses cannot overwrite current inspector state');
   assert.doesNotMatch(html, /id="sidepanel"/, 'legacy overlay source viewer is removed');
   assert.doesNotMatch(app, /localStorage|sessionStorage|indexedDB|document\.cookie|history\.(pushState|replaceState)|location\.(hash|search)/, 'V1 cockpit state is not persisted across reload surfaces');
-  assert.match(app, /const view = \{\s*tab: 'overview'/, 'reload starts from the default overview state');
+  assert.match(app, /const view = \{\s*tab: 'daily'/, 'reload starts from the daily queue landing state');
 });
 
 test('topology graph normalizes node kinds before layout and SVG classification', () => {

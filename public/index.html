@@ -22,14 +22,21 @@
 
       <section class="pinned-context" aria-labelledby="pinned-title">
         <div class="region-label" id="pinned-title">Pinned context</div>
-        <div class="context-row"><span>Transport</span><b>LOCALHOST · GET ONLY</b></div>
+        <div class="context-row"><span>Transport</span><b>LOCALHOST · GOVERNED</b></div>
         <div class="context-row"><span>Truth</span><b>SOURCE → COCKPIT</b></div>
         <div class="context-row"><span>Session</span><b id="sessionState">IN MEMORY</b></div>
       </section>
 
+      <div class="region-label nav-label">Workstreams</div>
+      <nav id="workNav" class="work-nav" aria-label="Goals and Operations navigator">
+        <div class="work-nav-empty">No project selected.</div>
+      </nav>
+
       <div class="region-label nav-label">Work modes</div>
       <nav id="tabs" class="lens-nav" aria-label="Command Center work modes">
-        <button type="button" data-tab="overview" data-lens="Dashboard" class="active">Overview</button>
+        <button type="button" data-tab="daily" data-lens="Queue" class="active">Daily Queue</button>
+        <button type="button" data-tab="work" data-lens="Queue">Work Detail</button>
+        <button type="button" data-tab="overview" data-lens="Dashboard">Overview</button>
         <button type="button" data-tab="board" data-lens="Board">OS State Board</button>
         <button type="button" data-tab="queue" data-lens="Board">Approval Queue</button>
         <button type="button" data-tab="topology" data-lens="Topology">Topology</button>
@@ -60,6 +67,7 @@
       <label class="compact-control lens-control" for="lensControl">
         <span>Lens</span>
         <select id="lensControl">
+          <option value="Queue">Queue</option>
           <option value="Dashboard">Dashboard</option>
           <option value="Board">Board</option>
           <option value="Table">Table</option>
@@ -86,7 +94,7 @@
       <div class="loading-state">Loading source-backed operating state…</div>
     </main>
 
-    <aside id="inspector" class="inspector" aria-label="Selected object inspector">
+    <aside id="inspector" class="inspector" aria-label="Selected object inspector and assistant dock">
       <div class="inspector-placeholder">Select a graph node, card, or table row to inspect its source-backed detail.</div>
     </aside>
 
@@ -137,6 +145,25 @@
         <button type="button" class="command-button" id="projectReset">Clear project</button>
         <span class="command-spacer"></span>
         <button type="button" class="command-button" id="projectCancel">Close</button>
+      </div>
+    </div>
+  </dialog>
+
+  <dialog id="approvalDialog" class="project-dialog" aria-label="Approve plan">
+    <div class="project-form">
+      <h2>Approve plan</h2>
+      <p class="project-current"><code id="apSummary">—</code></p>
+      <div class="ap-meta" id="apMeta"></div>
+      <pre id="apPreview" class="approval-preview" aria-label="Change preview"></pre>
+      <div id="apConfirmWrap" hidden>
+        <label for="apConfirm">Founder-class operation — type the plan id to confirm</label>
+        <input id="apConfirm" type="text" autocomplete="off" spellcheck="false" />
+      </div>
+      <p id="apError" class="project-error" hidden></p>
+      <div class="project-actions">
+        <button type="button" class="command-button" id="apCancel">Cancel</button>
+        <span class="command-spacer"></span>
+        <button type="button" class="command-button primary" id="apApprove">Approve &amp; execute</button>
       </div>
     </div>
   </dialog>

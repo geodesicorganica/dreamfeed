@@ -16,6 +16,7 @@ const { loadPolicy } = require('./commands/policy');
 const { approvePlan, executePlan, requestHalt, rollbackExecution } = require('./commands/executor');
 const cpStore = require('./commands/store');
 const { appendEvent, readLedger, verifyChain } = require('./commands/ledger');
+const { runAssistant, isConfigured: assistantConfigured } = require('./assistant/adapter');
 const { REPO_ROOT, canonicalRoot, canonicalKey, rootToken } = require('./parse');
 const projectPicker = require('./projectPicker');
 
@@ -234,6 +235,7 @@ function projectDescriptor(req, extra = {}) {
     restoreWarning,
     recent: recentRoots.map((r) => ({ path: r, label: path.basename(r) || r })),
     pickers: { native: projectPicker.nativeAvailable(), providers: projectPicker.listProviders() },
+    assistant: { configured: assistantConfigured() },
     ...(req && guarded.ok ? { actionToken: ACTION_TOKEN } : {}),
     ...extra,
   };
@@ -331,6 +333,7 @@ const MUTATING_ROUTES = Object.freeze({
   '/api/executions/:id/halt': ['POST'],
   '/api/executions/:id/rollback': ['POST'],
   '/api/work/tasks/transition': ['POST'],
+  '/api/assistant/:mode/messages': ['POST'],
 });
 const BODY_CAP = 1024 * 1024;
 
@@ -382,7 +385,7 @@ const CODE_STATUS = {
   'validation': 400, 'not-found': 404, 'containment': 404, 'no-project': 409,
   'drift': 409, 'root-drift': 409, 'state': 409, 'busy': 409, 'approval': 409,
   'unsafe': 409, 'diverged': 409, 'no-preimage': 409, 'confirm-required': 403,
-  'policy-denied': 422, 'io': 500,
+  'policy-denied': 422, 'io': 500, 'not-configured': 501,
 };
 function sendEngineError(res, out) {
   sendJson(res, CODE_STATUS[out.code] || 400, { error: out.error, code: out.code });
@@ -448,6 +451,14 @@ function handleMutation(req, res, url, body) {
     sendJson(res, 200, { execution: out.execution });
     return;
   }
+  if (m.pattern === '/api/assistant/:mode/messages') {
+    // Assistant proxy (D31): outbound only via the adapter's configured
+    // endpoint; the context string is client-built and operator-visible.
+    return runAssistant(params.mode, body.message, body.context).then((out) => {
+      if (out.error) { sendEngineError(res, out); return; }
+      sendJson(res, 200, { reply: out.reply, mode: params.mode });
+    });
+  }
   if (m.pattern === '/api/work/tasks/transition') {
     // Daily-queue sugar: intent + plan in one call; auto-class plans execute
     // immediately (fully ledgered); approve-class plans come back pending.
@@ -480,8 +491,10 @@ const server = http.createServer((req, res) => {
     if (!g.ok) { sendJson(res, g.status, { error: g.error }); return; }
     readJsonBody(req, (err, body) => {
       if (err) { sendJson(res, err.status, { error: err.error }); return; }
-      try { handleMutation(req, res, req.url.split('?')[0], body); }
-      catch (e) { sendJson(res, 500, { error: String(e.message || e) }); }
+      try {
+        Promise.resolve(handleMutation(req, res, req.url.split('?')[0], body))
+          .catch((e) => { if (!res.headersSent) sendJson(res, 500, { error: String(e.message || e) }); });
+      } catch (e) { if (!res.headersSent) sendJson(res, 500, { error: String(e.message || e) }); }
     });
     return;
   }

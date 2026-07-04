@@ -12,10 +12,23 @@ let actionToken = null;
 let browse = null; // in-app folder browser state: { path, parent, atRoot, entries, drives }
 let objectRegistry = new Map();
 let evidenceRequestId = 0;
+// Gate G (D31) surfaces: native work state, daily queue, sprint metrics,
+// lifecycle records, and the audit ledger — all server-computed projections.
+let workData = null;
+let queueData = null;
+let sprintData = null;
+let lifecycleData = null;
+let ledgerData = null;
+let pendingPlan = null; // plan awaiting the approval dialog
+// Assistant dock state (in-memory transcripts only; never persisted).
+const assistant = { mode: 'chief-of-staff', busy: false, transcripts: { 'chief-of-staff': [], 'translator': [], 'chat': [] } };
 const hasDom = typeof window !== 'undefined' && typeof document !== 'undefined';
 const view = {
-  tab: 'overview', filterText: '', filterStatus: '', collapsed: {}, graphSel: null,
+  tab: 'daily', filterText: '', filterStatus: '', collapsed: {}, graphSel: null,
   selectedObjectId: null, inspectorTab: 'overview', evidence: null, evidenceMode: 'rendered',
+  rightMode: 'inspector', // 'inspector' | 'assistant' — the region-4 mode toggle
+  workScope: null,        // { streamType, containerId, group? } from the navigator
+  navCollapsed: {},
   // Wide layouts keep all five regions visible. Narrow layouts start with the
   // inspector collapsed and expose it through the command-bar drawer control.
   inspectorOpen: hasDom ? window.innerWidth > 940 : true, bottomOpen: true, sidebarOpen: false, density: 'comfortable', feedback: [],
@@ -24,6 +37,7 @@ const view = {
 // The explicit Dreamfeed view registry. Existing Command Center tabs are
 // projections over these lenses; none are discarded by the shell rebuild.
 const LENS_REGISTRY = Object.freeze({
+  Queue: { tabs: ['daily', 'work'], defaultTab: 'daily' },
   Dashboard: { tabs: ['overview', 'learning'], defaultTab: 'overview' },
   Board: { tabs: ['board', 'queue', 'milestones'], defaultTab: 'board' },
   Table: { tabs: ['sources', 'health'], defaultTab: 'sources' },
@@ -565,19 +579,299 @@ function renderEvidenceView(item) {
   const toggle = `<div class="evidence-mode" role="group" aria-label="Evidence display mode"><button type="button" data-evidence-mode="rendered" class="${mode === 'rendered' ? 'active' : ''}">Rendered</button><button type="button" data-evidence-mode="raw" class="${mode === 'raw' ? 'active' : ''}">Raw</button></div>`;
   return `${meta}${toggle}${mode === 'raw' ? raw : `<div class="markdown-body">${renderMarkdown(view.evidence.content || '')}</div>`}`;
 }
+// ---------------------------------------------------------------------------
+// Gate G (D31): mutation helper, daily queue, work detail, workstream nav,
+// approval dialog, and the assistant dock. Every mutation goes through the
+// governed lifecycle routes; nothing here writes directly.
+// ---------------------------------------------------------------------------
+async function postMutation(url, body = {}) {
+  const headers = { 'Content-Type': 'application/json', 'X-Dreamfeed-Token': actionToken || '' };
+  let res = await fetch(url, { method: 'POST', cache: 'no-store', headers, body: JSON.stringify(body) });
+  if (res.status === 403) {
+    try {
+      const d = await (await fetch('/api/project', { cache: 'no-store' })).json();
+      if (d && d.actionToken && d.actionToken !== actionToken) {
+        actionToken = d.actionToken;
+        headers['X-Dreamfeed-Token'] = actionToken;
+        res = await fetch(url, { method: 'POST', cache: 'no-store', headers, body: JSON.stringify(body) });
+      }
+    } catch { /* fall through with the original 403 */ }
+  }
+  return res;
+}
+
+const QUEUE_STATE_KIND = { planned: 'grey', active: 'blue', blocked: 'red', done: 'green', 'pending-approval': 'amber', executing: 'blue', succeeded: 'green', failed: 'red' };
+function statePill(value) { return pill(value || 'not yet structured', QUEUE_STATE_KIND[value] || 'grey'); }
+
+function chainLabel(chain) {
+  if (!chain) return '';
+  return chain.goal
+    ? `${chain.goal} › ${chain.phase} › ${chain.milestone}`
+    : `${chain.operation} › ${chain.workflow}`;
+}
+
+function taskActions(task) {
+  const status = fieldValue(task.status, 'planned');
+  const id = fieldValue(task.id, '');
+  const buttons = [];
+  if (status !== 'active' && status !== 'done') buttons.push(['active', 'Start']);
+  if (status !== 'done') buttons.push(['done', 'Done']);
+  buttons.push(status === 'blocked' ? ['planned', 'Unblock'] : ['blocked', 'Block']);
+  return buttons.map(([to, label]) =>
+    `<button type="button" class="command-button task-action" data-transition="${esc(id)}" data-to="${esc(to)}">${esc(label)}</button>`).join('');
+}
+
+function queueRow(entry) {
+  const t = entry.task;
+  return `<div class="queue-row" data-stream="${esc(entry.streamType)}">
+    <span class="queue-stream" title="${esc(entry.streamType)}">${entry.streamType === 'goal' ? 'G' : 'O'}</span>
+    <div class="queue-main">
+      <div class="queue-title">${esc(fieldValue(t.title))} <span class="odim">${esc(fieldValue(t.id, ''))}</span></div>
+      <div class="queue-chain">${esc(chainLabel(t.chain?.value))}</div>
+    </div>
+    <span class="queue-est">${t.est_hours && !t.est_hours.nys ? esc(t.est_hours.value + 'h') : ''}</span>
+    <span class="queue-date">${esc(fieldValue(t.scheduled, ''))}</span>
+    ${statePill(fieldValue(t.status))}
+    <div class="queue-actions">${taskActions(t)}</div>
+  </div>`;
+}
+
+function renderDaily() {
+  if (!queueData || queueData.hasNative === false) {
+    return `<article class="card"><div class="card-title">Daily execution queue</div>
+      <p class="odim">The active project has no Dreamfeed-native <code>os/</code> layout (goals, operations). See <code>docs/product/native-schema.md</code> to adopt it, or use the classic lenses from the sidebar.</p>
+      <button type="button" class="command-button" data-gotab="overview">Open classic Overview</button></article>`;
+  }
+  const s = queueData.sections;
+  const section = (key, title, entries) => group(`dq-${key}`, title, entries.length
+    ? entries.map(queueRow).join('')
+    : '<p class="odim">Nothing here.</p>', entries.length);
+  const pendingNote = pendingApprovals().length
+    ? `<article class="card warn-card"><div class="card-title">Pending approvals</div><p>${pendingApprovals().length} plan(s) await your explicit approval — see the bottom panel.</p></article>` : '';
+  return `${pendingNote}${section('today', 'Today', s.today)}${section('rolled', 'Rolled over', s.rolledOver)}${section('upcoming', 'Upcoming (7 days)', s.upcoming)}`;
+}
+
+function workTaskTable(tasks) {
+  return `<table class="data-table"><thead><tr><th>ID</th><th>Task</th><th>Status</th><th>Est</th><th>Scheduled</th><th>Owner</th><th></th></tr></thead><tbody>${tasks.map((t) =>
+    `<tr><td>${esc(fieldValue(t.localId))}</td><td>${esc(fieldValue(t.title))}</td><td>${statePill(fieldValue(t.status))}</td><td>${t.est_hours && !t.est_hours.nys ? esc(t.est_hours.value + 'h') : '—'}</td><td>${esc(fieldValue(t.scheduled, '—'))}</td><td>${esc(fieldValue(t.owner, '—'))}</td><td class="queue-actions">${taskActions(t)}</td></tr>`).join('')}</tbody></table>`;
+}
+
+function renderWork() {
+  if (!workData || workData.hasNative === false) return renderDaily();
+  const scope = view.workScope;
+  const parts = [];
+  const wantGoal = !scope || scope.streamType === 'goal';
+  const wantOp = !scope || scope.streamType === 'operation';
+  if (wantGoal) {
+    for (const g of workData.goals) {
+      if (scope && scope.containerId && g.id.value !== scope.containerId) continue;
+      const inner = g.phases.map((p) => `<h3 class="work-phase">Phase: ${esc(p.title.value)}</h3>` +
+        p.milestones.map((m) => `<h4 class="work-milestone">Milestone: ${esc(m.title.value)}</h4>${workTaskTable(m.tasks)}`).join('')).join('');
+      parts.push(group(`goal-${g.id.value}`, `Goal: ${fieldValue(g.title)}`, `${srcLine(g.source_evidence)}${inner}`, fieldValue(g.status)));
+    }
+  }
+  if (wantOp) {
+    for (const o of workData.operations) {
+      if (scope && scope.containerId && o.id.value !== scope.containerId) continue;
+      const inner = o.workflows.map((w) => `<h4 class="work-milestone">Workflow: ${esc(w.title.value)}</h4>${workTaskTable(w.tasks)}`).join('');
+      parts.push(group(`op-${o.id.value}`, `Operation: ${fieldValue(o.title)}`, `${srcLine(o.source_evidence)}${inner}`, fieldValue(o.cadence, fieldValue(o.status))));
+    }
+  }
+  if (workData.blockers.length) {
+    parts.push(group('work-blockers', 'Blockers', workData.blockers.map((b) =>
+      `<div class="trace-row"><span>${esc(fieldValue(b.item))} <span class="odim">${esc(fieldValue(b.scope, ''))}</span></span><b>${esc(fieldValue(b.condition))} → ${esc(fieldValue(b.unblocking_action))}</b></div>`).join(''), workData.blockers.length));
+  }
+  return parts.join('') || '<p class="odim">No goals or operations in this project.</p>';
+}
+
+function renderWorkNav() {
+  const nav = $('#workNav'); if (!nav) return;
+  if (!workData || workData.hasNative === false) {
+    nav.innerHTML = `<div class="work-nav-empty">${workData === null ? 'No project selected.' : 'No os/ work layout.'}</div>`;
+    return;
+  }
+  const taskCount = (tasks) => tasks.filter((t) => fieldValue(t.status) !== 'done').length;
+  const tree = (key, label, items, kids) => {
+    const collapsed = !!view.navCollapsed[key];
+    return `<div class="work-tree"><button type="button" class="work-tree-head" data-navtoggle="${esc(key)}" aria-expanded="${!collapsed}"><span class="chev">${collapsed ? '▶' : '▼'}</span>${esc(label)}<span class="count">${items.length}</span></button>${collapsed ? '' : kids}</div>`;
+  };
+  const goals = tree('goals', 'Goals', workData.goals, workData.goals.map((g) => {
+    const open = fieldValue(g.status) !== 'done';
+    const n = g.phases.reduce((acc, p) => acc + p.milestones.reduce((a, m) => a + taskCount(m.tasks), 0), 0);
+    return `<button type="button" class="work-node${view.workScope?.containerId === g.id.value ? ' active' : ''}" data-scope-type="goal" data-scope-id="${esc(g.id.value)}">${esc(fieldValue(g.title))}<span class="count">${n}</span>${open ? '' : ' ✓'}</button>`;
+  }).join(''));
+  const ops = tree('operations', 'Operations', workData.operations, workData.operations.map((o) => {
+    const n = o.workflows.reduce((a, w) => a + taskCount(w.tasks), 0);
+    return `<button type="button" class="work-node${view.workScope?.containerId === o.id.value ? ' active' : ''}" data-scope-type="operation" data-scope-id="${esc(o.id.value)}">${esc(fieldValue(o.title))}<span class="count">${n}</span></button>`;
+  }).join(''));
+  nav.innerHTML = goals + ops;
+  nav.querySelectorAll('[data-navtoggle]').forEach((el) => el.addEventListener('click', () => { view.navCollapsed[el.dataset.navtoggle] = !view.navCollapsed[el.dataset.navtoggle]; renderWorkNav(); }));
+  nav.querySelectorAll('[data-scope-type]').forEach((el) => el.addEventListener('click', () => {
+    view.workScope = { streamType: el.dataset.scopeType, containerId: el.dataset.scopeId };
+    view.tab = 'work'; view.sidebarOpen = false;
+    feedback(`Scoped to ${el.dataset.scopeType}: ${el.dataset.scopeId}`);
+    render();
+  }));
+}
+
+// --- governed transitions + approval dialog ----------------------------------
+
+async function runTransition(taskId, to) {
+  try {
+    const res = await postMutation('/api/work/tasks/transition', { taskId, to });
+    const data = await res.json().catch(() => ({}));
+    if (res.status === 202 && data.plan) { openApprovalDialog(data.plan); return; }
+    if (!res.ok) { feedback(`Transition refused (${res.status}): ${data.error || 'unknown error'}`); render(); return; }
+    feedback(`Task ${taskId} → ${to} (${data.execution ? data.execution.status : 'done'}) · ledgered`);
+    await load();
+  } catch (err) { feedback(`Transition failed: ${String(err)}`); render(); }
+}
+
+function pendingApprovals() {
+  return (lifecycleData?.plans || []).filter((p) => p.status === 'planned' && p.class !== 'auto');
+}
+
+function openApprovalDialog(plan) {
+  pendingPlan = plan;
+  const dlg = $('#approvalDialog'); if (!dlg) return;
+  $('#apSummary').textContent = plan.summary || plan.opName;
+  $('#apMeta').innerHTML = `<div class="trace-row"><span>plan</span><b>${esc(plan.id)} · class ${esc(plan.class)}</b></div><div class="trace-row"><span>plan hash</span><b>${esc(String(plan.planHash).slice(0, 16))}…</b></div>`;
+  const diff = plan.preview?.diff;
+  $('#apPreview').textContent = diff
+    ? diff.map((c) => `${c.type === 'add' ? '+' : '-'} ${c.text}`).join('\n') || '(no line changes)'
+    : (plan.preview?.command || '(no preview)');
+  const founder = plan.class === 'founder';
+  $('#apConfirmWrap').hidden = !founder;
+  $('#apConfirm').value = '';
+  const errEl = $('#apError'); errEl.hidden = true; errEl.textContent = '';
+  if (typeof dlg.showModal === 'function') { if (!dlg.open) dlg.showModal(); } else dlg.setAttribute('open', '');
+}
+function closeApprovalDialog() {
+  pendingPlan = null;
+  const dlg = $('#approvalDialog'); if (!dlg) return;
+  if (typeof dlg.close === 'function' && dlg.open) dlg.close(); else dlg.removeAttribute('open');
+}
+async function approveAndExecute() {
+  if (!pendingPlan) return;
+  const errEl = $('#apError');
+  const body = pendingPlan.class === 'founder' ? { confirm: $('#apConfirm').value.trim() } : {};
+  try {
+    const ar = await postMutation(`/api/plans/${encodeURIComponent(pendingPlan.id)}/approve`, body);
+    const aData = await ar.json().catch(() => ({}));
+    if (!ar.ok) { errEl.textContent = aData.error || `approval refused (${ar.status})`; errEl.hidden = false; return; }
+    const xr = await postMutation(`/api/plans/${encodeURIComponent(pendingPlan.id)}/execute`, {});
+    const xData = await xr.json().catch(() => ({}));
+    if (!xr.ok) { errEl.textContent = xData.error || `execution refused (${xr.status})`; errEl.hidden = false; return; }
+    feedback(`Executed ${pendingPlan.opName}: ${xData.execution.status} · ledgered`);
+    closeApprovalDialog();
+    await load();
+  } catch (err) { errEl.textContent = String(err); errEl.hidden = false; }
+}
+
+// --- assistant dock (region 4 mode) -------------------------------------------
+
+const ASSISTANT_MODES = [
+  ['chief-of-staff', 'Chief of Staff'],
+  ['translator', 'Translator'],
+  ['chat', 'Chat'],
+];
+
+function assistantContext() {
+  // Operator-visible context (D31): only the compact queue summary, never file
+  // contents. Shown verbatim in the dock so the operator sees what is sent.
+  if (!queueData || queueData.hasNative === false) return '';
+  const line = (k, entries) => `${k}: ${entries.map((e) => `${fieldValue(e.task.id, '')}[${fieldValue(e.task.status)}] ${fieldValue(e.task.title)}`).join('; ') || 'none'}`;
+  return [line('Today', queueData.sections.today), line('Rolled over', queueData.sections.rolledOver)].join('\n');
+}
+
+function renderAssistant(inspector) {
+  const configured = !!(project && project.assistant && project.assistant.configured);
+  const transcript = assistant.transcripts[assistant.mode];
+  const modeTabs = ASSISTANT_MODES.map(([id, label]) =>
+    `<button type="button" class="assistant-mode${assistant.mode === id ? ' active' : ''}" data-assistant-mode="${id}">${label}</button>`).join('');
+  const ctx = assistantContext();
+  const body = !configured
+    ? `<div class="assistant-empty"><p><b>Assistant not configured.</b></p><p class="odim">Create <code>assistant-config.json</code> in the app folder (gitignored) with a <code>cli</code> or <code>http</code> provider. See README §Assistant. Keys never enter this repo or the ledger.</p></div>`
+    : (transcript.length
+      ? transcript.map((m) => `<div class="assistant-msg assistant-${m.role}"><span class="assistant-role">${m.role === 'user' ? 'YOU' : 'ASSISTANT'}</span><div>${renderMarkdown(m.text)}</div></div>`).join('')
+      : `<div class="assistant-empty odim">${assistant.mode === 'chief-of-staff' ? 'Ask for a read on today\'s queue, or what to delegate. Proposals come back as suggestions — every action still needs your approval.' : assistant.mode === 'translator' ? 'Paste rough notes; get back a structured task spec or prompt.' : 'Ask anything about the current work state.'}</div>`);
+  inspector.innerHTML = `
+    <div class="right-mode-tabs"><button type="button" class="right-mode" data-right-mode="inspector">Inspector</button><button type="button" class="right-mode active" data-right-mode="assistant">Assistant</button></div>
+    <div class="assistant-dock">
+      <div class="assistant-modes">${modeTabs}</div>
+      <div class="assistant-transcript" id="assistantTranscript">${body}${assistant.busy ? '<div class="assistant-msg odim">thinking…</div>' : ''}</div>
+      ${ctx ? `<details class="assistant-ctx"><summary>Context sent with each message</summary><pre>${esc(ctx)}</pre></details>` : ''}
+      <div class="assistant-input">
+        <textarea id="assistantText" rows="3" placeholder="${configured ? 'Message the assistant…' : 'Configure the assistant first'}" ${configured && !assistant.busy ? '' : 'disabled'}></textarea>
+        <button type="button" class="command-button primary" id="assistantSend" ${configured && !assistant.busy ? '' : 'disabled'}>Send</button>
+      </div>
+    </div>`;
+  inspector.querySelectorAll('[data-right-mode]').forEach((el) => el.addEventListener('click', () => { view.rightMode = el.dataset.rightMode; renderInspector(); }));
+  inspector.querySelectorAll('[data-assistant-mode]').forEach((el) => el.addEventListener('click', () => { assistant.mode = el.dataset.assistantMode; renderInspector(); }));
+  const sendBtn = inspector.querySelector('#assistantSend');
+  const text = inspector.querySelector('#assistantText');
+  const send = async () => {
+    const message = text.value.trim(); if (!message || assistant.busy) return;
+    assistant.transcripts[assistant.mode].push({ role: 'user', text: message });
+    assistant.busy = true; renderInspector();
+    try {
+      const res = await postMutation(`/api/assistant/${assistant.mode}/messages`, { message, context: assistantContext() });
+      const data = await res.json().catch(() => ({}));
+      assistant.transcripts[assistant.mode].push({ role: 'assistant', text: res.ok ? data.reply : `⚠ ${data.error || `HTTP ${res.status}`}` });
+    } catch (err) {
+      assistant.transcripts[assistant.mode].push({ role: 'assistant', text: `⚠ ${String(err)}` });
+    } finally {
+      assistant.busy = false; renderInspector();
+      const t = $('#assistantTranscript'); if (t) t.scrollTop = t.scrollHeight;
+    }
+  };
+  if (sendBtn) sendBtn.addEventListener('click', send);
+  if (text) text.addEventListener('keydown', (e) => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); send(); } });
+}
+
 function renderInspector() {
   const inspector = $('#inspector'); if (!inspector) return;
+  if (view.rightMode === 'assistant') { renderAssistant(inspector); return; }
+  const modeTabs = '<div class="right-mode-tabs"><button type="button" class="right-mode active" data-right-mode="inspector">Inspector</button><button type="button" class="right-mode" data-right-mode="assistant">Assistant</button></div>';
+  const wireModeTabs = () => inspector.querySelectorAll('[data-right-mode]').forEach((el) => el.addEventListener('click', () => { view.rightMode = el.dataset.rightMode; renderInspector(); }));
   const item = objectRegistry.get(view.selectedObjectId);
-  if (!item) { inspector.innerHTML = '<div class="inspector-placeholder">Select a graph node, card, or table row. The inspector shows one derived UI record over the existing source-backed object, never a duplicate truth.</div>'; return; }
+  if (!item) {
+    inspector.innerHTML = `${modeTabs}<div class="inspector-placeholder">Select a graph node, card, or table row. The inspector shows one derived UI record over the existing source-backed object, never a duplicate truth.</div>`;
+    wireModeTabs();
+    return;
+  }
   const overview = `<dl class="inspector-kv"><dt>Type</dt><dd>${esc(item.type)}</dd><dt>State</dt><dd>${esc(item.state)}</dd><dt>Owner / authority</dt><dd>${esc(item.owner)} · ${esc(item.sourceAuthority)}</dd><dt>Timestamp</dt><dd>${esc(item.timestamp)}</dd><dt>Provenance</dt><dd>${esc(item.provenance)}</dd>${item.overview.map(([k, v]) => `<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join('')}</dl>${item.sourcePath ? '' : '<p class="odim">No directly viewable source file is available for this derived object.</p>'}`;
   const evidence = renderEvidenceView(item);
   const relationships = item.relationships.length ? `<ul class="detail-list">${item.relationships.map((r) => `<li>${esc(r)}</li>`).join('')}</ul>` : '<p class="odim">No source-backed relationship is structured for this selection.</p>';
   const content = view.inspectorTab === 'evidence' ? evidence : view.inspectorTab === 'relationships' ? relationships : overview;
   const sourceAction = item.sourcePath ? `<button type="button" class="inspector-action" data-evidence-path="${esc(item.sourcePath)}">Load read-only source → ${esc(item.sourcePath)}</button>` : '';
-  inspector.innerHTML = `<div class="inspector-head"><div class="region-label">Selected object</div><h2>${esc(item.title)}</h2><div class="inspector-id">${esc(item.id)}</div></div><div class="inspector-tabs"><button type="button" data-inspector-tab="overview" class="${view.inspectorTab === 'overview' ? 'active' : ''}">Overview</button><button type="button" data-inspector-tab="evidence" class="${view.inspectorTab === 'evidence' ? 'active' : ''}">Evidence</button><button type="button" data-inspector-tab="relationships" class="${view.inspectorTab === 'relationships' ? 'active' : ''}">Relationships</button></div><div class="inspector-body">${content}${sourceAction}<div class="detail-sec">Read-only action</div><p class="odim">${esc(item.nextAction)}</p></div>`;
+  inspector.innerHTML = `${modeTabs}<div class="inspector-head"><div class="region-label">Selected object</div><h2>${esc(item.title)}</h2><div class="inspector-id">${esc(item.id)}</div></div><div class="inspector-tabs"><button type="button" data-inspector-tab="overview" class="${view.inspectorTab === 'overview' ? 'active' : ''}">Overview</button><button type="button" data-inspector-tab="evidence" class="${view.inspectorTab === 'evidence' ? 'active' : ''}">Evidence</button><button type="button" data-inspector-tab="relationships" class="${view.inspectorTab === 'relationships' ? 'active' : ''}">Relationships</button></div><div class="inspector-body">${content}${sourceAction}<div class="detail-sec">Read-only action</div><p class="odim">${esc(item.nextAction)}</p></div>`;
   inspector.querySelectorAll('[data-inspector-tab]').forEach((button) => button.addEventListener('click', () => { view.inspectorTab = button.dataset.inspectorTab; renderInspector(); }));
   inspector.querySelectorAll('[data-evidence-path]').forEach((button) => button.addEventListener('click', () => openEvidence(button.dataset.evidencePath, item.id)));
   inspector.querySelectorAll('[data-evidence-mode]').forEach((button) => button.addEventListener('click', () => { view.evidenceMode = button.dataset.evidenceMode; renderInspector(); }));
+  wireModeTabs();
+}
+// Bottom status strip (D31): sprint progress, workspace/git health, and
+// commit/push readiness — always visible above the trace sections.
+function renderStatusStrip() {
+  const s = sprintData && sprintData.hasNative ? sprintData : null;
+  const h = repoHealth && !repoHealth.fatal ? repoHealth : null;
+  const sprint = s
+    ? `<span class="strip-item" title="done / total tasks">SPRINT ${s.counts.done}/${s.counts.done + s.counts.planned + s.counts.active + s.counts.blocked} · ${s.completionPct ?? 0}%</span>
+       <span class="strip-item" title="estimated hours remaining">EST ${s.estRemaining}h left</span>
+       <span class="strip-item${s.counts.rolledOver ? ' strip-warn' : ''}" title="tasks scheduled in the past and not done">ROLLOVER ${s.counts.rolledOver}</span>`
+    : '<span class="strip-item odim">SPRINT —</span>';
+  const git = h && h.isRepo
+    ? `<span class="strip-item">⎇ ${esc(h.branch || '?')}</span>
+       <span class="strip-item${h.clean ? '' : ' strip-warn'}" title="${esc(h.safeReason || '')}">${h.clean ? 'CLEAN' : `DIRTY ${h.counts.staged}s/${h.counts.unstaged}u/${h.counts.untracked}?`}</span>
+       <span class="strip-item" title="ahead/behind upstream">${h.upstream && h.upstream.exists ? `↑${h.upstream.ahead ?? '?'} ↓${h.upstream.behind ?? '?'}` : 'no upstream'}</span>`
+    : `<span class="strip-item odim">${h ? esc(h.safeReason || 'no repo') : 'git —'}</span>`;
+  const chain = ledgerData && ledgerData.chain
+    ? `<span class="strip-item${ledgerData.chain.ok ? '' : ' strip-bad'}" title="audit ledger hash chain">LEDGER ${ledgerData.chain.ok ? `OK · ${ledgerData.chain.length}` : 'BROKEN'}</span>`
+    : '';
+  const pending = pendingApprovals().length
+    ? `<span class="strip-item strip-warn">APPROVALS ${pendingApprovals().length}</span>` : '';
+  return `<div class="status-strip" role="status" aria-label="Sprint and workspace status">${sprint}<span class="strip-sep"></span>${git}<span class="strip-sep"></span>${chain}${pending}</div>`;
 }
 function renderBottomPanel() {
   const panel = $('#bottomPanel'); if (!panel || !state) return;
@@ -586,7 +880,31 @@ function renderBottomPanel() {
   const checks = `<div class="bottom-section"><div class="bottom-head"><h2>Validation trace</h2><span class="odim">read-only records</span></div>${validation.map((c) => `<div class="trace-row"><span>${esc(c.label)}</span><b>${esc(c.status)} · ${esc(c.currency)} · ${esc(c.ranAtLabel || 'never run')}</b></div>`).join('') || '<p class="odim">No validation status is available.</p>'}</div>`;
   const feedbackRows = view.feedback.length ? view.feedback.map((entry) => `<div class="trace-row"><span>${esc(monoTime(entry.at))}</span><b>${esc(entry.message)}</b></div>`).join('') : '<p class="odim">No shell interactions recorded this session.</p>';
   const ephemeral = `<div class="bottom-section"><div class="bottom-head"><h2>Ephemeral session feedback</h2><span class="ephemeral-note">NOT SOURCE-BACKED</span></div><p class="ephemeral-note">In-memory UI feedback only. It is not persisted and does not alter source files.</p>${feedbackRows}</div>`;
-  panel.innerHTML = `<div class="bottom-grid">${sourceTraces}${checks}${ephemeral}</div>`;
+  // Gate G sections: pending approvals (explicit operator action) and the
+  // Visual Ledger (immutable, hash-chained; halt/rollback are the overrides).
+  const pend = pendingApprovals();
+  const approvalsSec = `<div class="bottom-section"><div class="bottom-head"><h2>Pending approvals</h2><span>${pend.length ? pill(`${pend.length} waiting`, 'amber') : pill('none', 'grey')}</span></div>${pend.length
+    ? pend.map((p) => `<div class="trace-row"><span>${esc(p.id)} · ${esc(p.class)}</span><b>${esc(p.summary || p.opName)} <button type="button" class="command-button task-action" data-review-plan="${esc(p.id)}">Review…</button></b></div>`).join('')
+    : '<p class="odim">No plan is waiting for approval.</p>'}</div>`;
+  const events = (ledgerData?.events || []).slice(-8).reverse();
+  const rollbackable = new Set((lifecycleData?.executions || []).filter((e) => e.status === 'succeeded' && (e.preimages || []).length).map((e) => e.id));
+  const ledgerSec = `<div class="bottom-section"><div class="bottom-head"><h2>Visual Ledger</h2><span>${ledgerData?.chain ? (ledgerData.chain.ok ? pill('chain ok', 'green') : pill('chain broken', 'red')) : pill('unavailable', 'grey')}</span></div>${events.length
+    ? events.map((e) => `<div class="trace-row"><span>#${e.seq} ${esc(monoTime(e.ts))}</span><b>${esc(e.type)}${e.summary ? ` · ${esc(e.summary)}` : ''}${e.executionId && e.type === 'execution-succeeded' && rollbackable.has(e.executionId) ? ` <button type="button" class="command-button task-action" data-rollback="${esc(e.executionId)}">Roll back…</button>` : ''}</b></div>`).join('')
+    : '<p class="odim">No governed actions have been ledgered yet.</p>'}</div>`;
+  panel.innerHTML = renderStatusStrip() + `<div class="bottom-grid">${approvalsSec}${ledgerSec}${sourceTraces}${checks}${ephemeral}</div>`;
+  panel.querySelectorAll('[data-review-plan]').forEach((el) => el.addEventListener('click', () => {
+    const plan = (lifecycleData?.plans || []).find((p) => p.id === el.dataset.reviewPlan);
+    if (plan) openApprovalDialog(plan);
+  }));
+  panel.querySelectorAll('[data-rollback]').forEach((el) => el.addEventListener('click', async () => {
+    const id = el.dataset.rollback;
+    const typed = window.prompt(`Rollback is a founder-class override. Type the execution id to confirm:\n${id}`);
+    if (typed === null) return;
+    const res = await postMutation(`/api/executions/${encodeURIComponent(id)}/rollback`, { confirm: typed.trim() });
+    const data = await res.json().catch(() => ({}));
+    feedback(res.ok ? `Rolled back ${id} · ledgered` : `Rollback refused: ${data.error || res.status}`);
+    await load();
+  }));
 }
 
 function statusOptions() {
@@ -606,10 +924,10 @@ function render() {
   document.querySelectorAll('#tabs button[data-tab]').forEach((button) => button.classList.toggle('active', button.dataset.tab === view.tab));
   const select = $('#filterStatus'); const chosen = view.filterStatus;
   select.innerHTML = '<option value="">All states</option>' + statusOptions().map((s) => `<option value="${esc(s)}"${s === chosen ? ' selected' : ''}>${esc(s)}</option>`).join('');
-  $('#loadMeta').textContent = `as of ${state.asOfDate} · ${state.readOnly ? 'GET-only' : 'state unavailable'}`;
-  const screens = { overview: renderOverview, board: renderBoard, queue: renderQueue, topology: renderTopology, roadmap: renderRoadmap, milestones: renderMilestones, review: renderReview, learning: renderLearning, sources: renderSources, health: renderHealth };
-  $('#main').innerHTML = (screens[view.tab] || renderOverview)();
-  renderInspector(); renderBottomPanel(); wireDynamic();
+  $('#loadMeta').textContent = `as of ${state.asOfDate} · reads source-backed · writes governed (D31)`;
+  const screens = { daily: renderDaily, work: renderWork, overview: renderOverview, board: renderBoard, queue: renderQueue, topology: renderTopology, roadmap: renderRoadmap, milestones: renderMilestones, review: renderReview, learning: renderLearning, sources: renderSources, health: renderHealth };
+  $('#main').innerHTML = (screens[view.tab] || renderDaily)();
+  renderWorkNav(); renderInspector(); renderBottomPanel(); wireDynamic();
 }
 function wireDynamic() {
   const main = $('#main');
@@ -642,6 +960,13 @@ function wireDynamic() {
   main.querySelectorAll('[data-file]').forEach((el) => el.addEventListener('click', (event) => { event.stopPropagation(); openEvidence(el.dataset.file); }));
   main.querySelectorAll('[data-command]').forEach((el) => el.addEventListener('click', (event) => { event.stopPropagation(); feedback(`Command is informational only: ${el.dataset.command}`); renderBottomPanel(); }));
   main.querySelectorAll('[data-gotab]').forEach((el) => el.addEventListener('click', (event) => { event.stopPropagation(); goTab(el.dataset.gotab); }));
+  // Governed task transitions (D31): every click is an intent through the
+  // lifecycle; auto-class runs immediately (ledgered), others open approval.
+  main.querySelectorAll('[data-transition]').forEach((el) => el.addEventListener('click', (event) => {
+    event.stopPropagation();
+    el.disabled = true;
+    runTransition(el.dataset.transition, el.dataset.to);
+  }));
 }
 function goTab(tab) { view.tab = tab; view.filterStatus = ''; view.graphSel = null; view.sidebarOpen = false; feedback(`Switched to ${tabLens(tab)} lens: ${tab}`); render(); }
 function goLens(lens) { const spec = LENS_REGISTRY[lens]; if (!spec) return; view.tab = spec.defaultTab; view.filterStatus = ''; view.sidebarOpen = false; if (spec.inspectorMode) { view.inspectorOpen = true; view.inspectorTab = spec.inspectorMode; } feedback(`Lens selected: ${lens}`); render(); }
@@ -661,6 +986,13 @@ async function load(attempt = 0) {
     if (attempt < 2 && repoHealth && !repoHealth.fatal && repoHealth.rootToken && state.rootToken && repoHealth.rootToken !== state.rootToken) {
       return load(attempt + 1);
     }
+    // Gate G projections. Each degrades independently — a missing os/ layout
+    // or an older server yields empty shapes, never a broken shell.
+    try { workData = await (await fetch('/api/work', { cache: 'no-store' })).json(); } catch { workData = null; }
+    try { queueData = await (await fetch('/api/queue', { cache: 'no-store' })).json(); } catch { queueData = null; }
+    try { sprintData = await (await fetch('/api/sprint', { cache: 'no-store' })).json(); } catch { sprintData = null; }
+    try { lifecycleData = await (await fetch('/api/lifecycle', { cache: 'no-store' })).json(); } catch { lifecycleData = null; }
+    try { ledgerData = await (await fetch('/api/ledger', { cache: 'no-store' })).json(); } catch { ledgerData = null; }
     buildObjectRegistry(); updateProjectLabel(); feedback('Source-backed state refreshed'); render();
   } catch (err) {
     $('#main').innerHTML = `<article class="card error-card"><div class="card-title">Load failed</div><pre class="evidence-content">${esc(String(err))}</pre></article>`;
@@ -848,8 +1180,24 @@ function bindShell() {
   $('#inspectorToggle').addEventListener('click', () => { view.inspectorOpen = !view.inspectorOpen; feedback(`Inspector ${view.inspectorOpen ? 'shown' : 'hidden'}`); render(); });
   $('#bottomToggle').addEventListener('click', () => { view.bottomOpen = !view.bottomOpen; feedback(`Validation panel ${view.bottomOpen ? 'shown' : 'hidden'}`); render(); });
   $('#sidebarToggle').addEventListener('click', () => { view.sidebarOpen = !view.sidebarOpen; render(); });
-  $('#logo').addEventListener('click', () => goTab('overview'));
+  $('#logo').addEventListener('click', () => goTab('daily'));
+  $('#apApprove').addEventListener('click', approveAndExecute);
+  $('#apCancel').addEventListener('click', closeApprovalDialog);
+  $('#apConfirm').addEventListener('keydown', (event) => { if (event.key === 'Enter') { event.preventDefault(); approveAndExecute(); } });
   document.addEventListener('keydown', (event) => { if (event.key === 'Escape') { view.sidebarOpen = false; if (window.innerWidth <= 940) view.inspectorOpen = false; render(); } });
+  // Queue keyboard reach: j/k move focus across queue rows; Enter/Space on a
+  // row's action buttons already works natively (buttons). Never auto-approves.
+  document.addEventListener('keydown', (event) => {
+    if (view.tab !== 'daily' || event.target.closest('input, textarea, select, dialog')) return;
+    if (event.key !== 'j' && event.key !== 'k') return;
+    const rows = [...document.querySelectorAll('.queue-row')];
+    if (!rows.length) return;
+    rows.forEach((r) => r.setAttribute('tabindex', '0'));
+    const i = rows.indexOf(document.activeElement);
+    const next = event.key === 'j' ? Math.min(i + 1, rows.length - 1) : Math.max(i - 1, 0);
+    rows[next].focus();
+    event.preventDefault();
+  });
 }
 
 if (hasDom) {
