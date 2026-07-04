@@ -1,13 +1,32 @@
 # Security, retention, incident, and readiness runbook
 
+## Gate G addendum (D31, 2026-07-03)
+
+- **Control-plane sidecar.** Lifecycle records (intents, plans, approvals,
+  executions) and the append-only hash-chained ledger persist in the
+  app-owned, gitignored `.dreamfeed/` directory with a `schemaVersion` field.
+  It is never authority over source truth; deleting it loses lifecycle
+  history, not work data. Tenant scoping remains a Phase 2 requirement.
+- **Assistant egress and keys.** `src/assistant/adapter.js` is the only module
+  with outbound egress, and only to endpoints the operator configured in the
+  gitignored `assistant-config.json`. Provider keys live in that file in
+  plaintext — a **known, accepted D31 limitation** for a single-operator
+  localhost tool (same exposure class as other IDE-assistant credential
+  stores). Keys are never logged, ledgered, echoed in errors, or exported.
+  AES-256-GCM key management remains a Phase 2 gate.
+- **Ledger integrity.** `verifyChain()` recomputes every event hash and prev
+  link; the UI surfaces LEDGER OK/BROKEN in the status strip. Tampering is
+  detectable, not preventable, at this trust level (single-operator machine).
+
 ## Data retention policy
 
-The reference keeps control-plane state in memory only. A process restart
-clears session state, indexes, plans, approvals, runs, traces, and secrets. The
-future persisted control plane must store each record with schema version,
-organization/workspace/project scope, retention class, export format, deletion
-eligibility, and source-authority classification. Repository sources remain in
-their repository and are governed by repository retention policies.
+Ephemeral UI state stays in memory; the Gate G control-plane sidecar persists
+as described above. A process restart clears session/UI state but keeps
+lifecycle records and the ledger. The future persisted control plane must
+store each record with schema version, organization/workspace/project scope,
+retention class, export format, deletion eligibility, and source-authority
+classification. Repository sources remain in their repository and are governed
+by repository retention policies.
 
 Secrets are excluded from every export. On import, connectors re-enter pending
 authorization and require fresh credential provisioning. Traces retain redacted

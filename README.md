@@ -1,9 +1,12 @@
 # Dreamfeed Command Center
 
-Read-only, localhost-only governance cockpit for agentic-business OS operators.
-Parses markdown tracking files and surfaces live strategic state: initiative status,
-weekly priorities, decisions queue, blocked items, dispatch queue, topology, and
-repo health.
+Localhost-only governance cockpit and **write-enabled command surface** for
+agentic-business OS operators (PS-003 / Gate G, D31). Parses markdown tracking
+files — the Stakeport governance layout and the Dreamfeed-native `os/`
+Goals/Operations schema — and surfaces live strategic state, a daily execution
+queue, sprint metrics, topology, and repo health. Writes to the selected
+project happen **only** through a governed lifecycle: intent → plan → explicit
+approval → execution → immutable hash-chained ledger.
 
 **GitHub:** https://github.com/geodesicorganica/dreamfeed
 **Local path:** `C:\Projects\dreamfeed-command-center`
@@ -41,11 +44,37 @@ $env:DREAMFEED_STAKEPORT_ROOT = "C:\Projects\stakeport_os"
 npm run test:integration
 ```
 
-## Constraints (PS-002 Phase 1 / Gate F)
+## Constraints (PS-003 / Gate G, per D31)
 
-- Localhost-only — no external network calls from the server.
-- GET-only — no write paths to source repositories.
-- Read-only — no variable mutation, pause/resume, halt, or rollback controls.
-- In-memory UI state — non-persistent V1 boundary.
+- Loopback-only serving — binds 127.0.0.1; host/origin/token guards everywhere.
+- Governed writes only — every source-repo mutation passes
+  intent → plan → approval → execute → ledger, root-contained and
+  drift-detected. Non-GET methods exist only on the lifecycle routes.
+- Policy classes — `auto` (task transitions) / `approve` (work edits, git
+  add/commit/branch/switch) / `founder` (push, rollback — typed confirmation)
+  / `denied` (force-push, out-of-root, `.git/`). Project override:
+  `os/policy.md`.
+- Workspace isolation — one active project per server; no cross-project writes.
+- Zero runtime dependencies; free-form terminal and deploy triggers stay gated.
 
-See `docs/` for brand, product, design-system, and decision documentation.
+## Assistant (optional)
+
+The right-region Assistant dock (Chief of Staff / Translator / Chat) needs a
+local, gitignored `assistant-config.json` in the app folder. Two provider
+shapes (the only module with outbound egress; keys never enter the repo,
+ledger, or logs):
+
+```json
+{ "provider": "cli", "cli": { "command": "claude", "args": ["-p"] } }
+```
+
+```json
+{ "provider": "http", "http": { "url": "http://localhost:11434/api/chat", "model": "llama3.1" } }
+```
+
+For cloud providers, point `http.url` at the endpoint and put the key in
+`http.headers` (e.g. `{ "Authorization": "Bearer …" }` or `{ "x-api-key": "…" }`).
+
+See `docs/` for brand, product, design-system, and decision documentation —
+`docs/decisions/d31-write-enabled-command-surface.md` defines the envelope and
+`docs/product/native-schema.md` the Goals/Operations file format.

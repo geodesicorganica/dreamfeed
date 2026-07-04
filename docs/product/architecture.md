@@ -168,6 +168,7 @@ explicit Phase 2 security gate, not implied by this reference.
 |---|---|---|
 | Phase 1 Command Center / Gate C | Preserved | Existing parser/object/provenance regression suite remains green |
 | Gate F wording | Reconciled as historical UX constraint, not a separate-brand rule | D23 single-brand decision and this product boundary remain consistent |
+| **PS-003 / Gate G write envelope (D31)** | **Open — first slice implemented 2026-07-03** | Governed lifecycle (intent → plan → approval → execute → ledger) implemented in this package: `src/commands/*`, `src/write.js`, native schema + queue, safe named git actions, assistant adapter. Evidence: `test/constraints.test.js`, `test/write-guards.test.js`, `test/ledger.test.js`, `test/readiness.test.js`. Remaining Phase 1.3 surface (proposed file edits, branch-management UI, deploy triggers, free-form terminal) stays gated |
 | Phase 1.3 external validation | Blocked | Evidence from two real non-Stakeport organizations using the acceptance protocol |
 | Phase 2 launch | Blocked | Three or more validated organizations plus approved security, legal, trademark, and commercial evidence |
 | Remote execution/deploy | Disabled | Approved connector, policy, entitlement, environment, and execution safety evidence |

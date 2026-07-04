@@ -41,6 +41,13 @@ representing Brief B gate 5b as accepted or the product as externally validated.
 ---
 
 ### Phase 1.3 — IDE Substitution (non-technical founder surface)
+
+> **Status 2026-07-03:** first slice **in progress under D31 (PS-003 / Gate G)**
+> in the standalone repo — governed write lifecycle, Dreamfeed-native
+> Goals/Operations schema, daily execution queue, approval dialog, assistant
+> dock, and safe named git actions are implemented. Proposed file edits,
+> branch-management UI, deploy triggers, and free-form terminal remain gated
+> (D32 candidates).
 Replaces the VSCode + Claude Code workflow for non-technical founders.
 The command center gains file editing, diff review, branch management,
 commit/build/test visibility, deploy triggers, and terminal access —
