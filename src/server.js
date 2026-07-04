@@ -8,6 +8,8 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const { buildState } = require('./state');
+const { buildQueue, buildSprintMetrics } = require('./queue');
+const { buildNativeState } = require('./nativeSchema');
 const { getRepoHealth } = require('./repohealth');
 const { REPO_ROOT, canonicalRoot, canonicalKey, rootToken } = require('./parse');
 const projectPicker = require('./projectPicker');
@@ -391,6 +393,29 @@ const server = http.createServer((req, res) => {
     } catch (err) {
       sendJson(res, 500, { fatal: String(err.message || err) });
     }
+    return;
+  }
+  // Native-schema projections (D31; read-only GETs). Empty shapes when no
+  // project or no os/ layout — degradation, never an error.
+  if (url === '/api/queue') {
+    try {
+      const q = currentRoot ? buildQueue({ repoRoot: currentRoot }) : buildQueue({});
+      sendJson(res, 200, { rootToken: currentRoot ? rootToken(currentRoot) : null, ...q });
+    } catch (err) { sendJson(res, 500, { fatal: String(err.message || err) }); }
+    return;
+  }
+  if (url === '/api/work') {
+    try {
+      const n = currentRoot ? buildNativeState({ repoRoot: currentRoot }) : buildNativeState({});
+      sendJson(res, 200, { rootToken: currentRoot ? rootToken(currentRoot) : null, ...n });
+    } catch (err) { sendJson(res, 500, { fatal: String(err.message || err) }); }
+    return;
+  }
+  if (url === '/api/sprint') {
+    try {
+      const m = currentRoot ? buildSprintMetrics({ repoRoot: currentRoot }) : buildSprintMetrics({});
+      sendJson(res, 200, { rootToken: currentRoot ? rootToken(currentRoot) : null, ...m });
+    } catch (err) { sendJson(res, 500, { fatal: String(err.message || err) }); }
     return;
   }
   if (url === '/api/file') {
