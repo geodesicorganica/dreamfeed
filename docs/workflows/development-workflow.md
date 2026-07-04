@@ -51,16 +51,26 @@ also a governance-shaped demo repo the cockpit can be pointed at.
 - After documentation-only changes with no app path references: tests optional
   but recommended.
 
-## Constraints
+## Constraints (PS-003 / Gate G, per D31)
 
-Never introduce the following without a separate founder-approved decision:
+Permitted only within the governed envelope:
 
-- Write paths to the source repository.
-- Variable mutation, pause/resume, halt, or rollback execution controls.
-- Persistence of server-side state beyond the current `project-config.json`
-  sidecar.
-- External network calls from the server.
-- CDN or runtime dependencies loaded at serve-time.
+- Source-repo writes: only via the intent → plan → approval → execute → ledger
+  lifecycle (root-contained, hash-revalidated, policy-classed).
+- Non-GET routes: only the enumerated mutating routes; all else 405.
+- Server-side persistence: only `project-config.json` and the gitignored
+  `.dreamfeed/` control-plane sidecar.
+- Outbound network: only the assistant adapter to user-configured model
+  providers; the serving surface stays loopback-only.
 
-These are gated by PS-002 Phase 1 and Gate F. The next execution-enabled phase
-requires explicit approval.
+Never introduce without a further founder-approved decision:
+
+- Free-form terminal or arbitrary shell execution (commands are named and
+  policy-declared only).
+- Deploy triggers.
+- Git force-push or history rewrites (permanently `denied` class).
+- CDN or runtime dependencies loaded at serve-time; any runtime dependency.
+- Cross-project writes or a second concurrent active project.
+
+Gate C six-object parser semantics remain frozen. Founder gates are never
+self-accepted.

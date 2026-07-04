@@ -5,3 +5,8 @@ audit-status.json
 # project root. Holds absolute LOCAL paths; machine-specific, never committed.
 project-config.json
 node_modules/
+# Gate G control-plane sidecar (D31): intents/plans/approvals/executions/ledger.
+# App-owned records; never source truth; machine-local.
+.dreamfeed/
+# Assistant provider config (D31): endpoints + keys. Never committed.
+assistant-config.json

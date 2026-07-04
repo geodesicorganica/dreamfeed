@@ -1,12 +1,12 @@
 'use strict';
-// PS-002 Phase 1 / Gate F constraint regression suite. Encodes the manual
-// constraint checklist (docs/workflows/verification-workflow.md) as tests, so a
-// violating change fails `npm test` instead of relying on reviewer discipline.
+// PS-003 / Gate G constraint regression suite (D31). Encodes the envelope from
+// docs/decisions/d31-write-enabled-command-surface.md as tests, so a violating
+// change fails `npm test` instead of relying on reviewer discipline.
 //
-// Behavior-first where possible: the GET-only invariant is asserted against a
-// live server, not by scanning source for route registrations. The remaining
-// invariants (write paths, external origins, zero dependencies) are static
-// scans with narrow, documented allowlists.
+// Behavior-first where possible. The suite is parameterized by the server's
+// exported MUTATING_ROUTES table: routes not enumerated there must refuse every
+// non-GET method with 405; routes enumerated there must refuse unguarded
+// requests (no action token) with 403 and undeclared methods with 405.
 const test = require('node:test');
 const { before, after } = require('node:test');
 const assert = require('node:assert');
@@ -19,6 +19,8 @@ process.env.DREAMFEED_NO_NATIVE = '1';
 const server = require('../src/server');
 
 const ROOT = path.join(__dirname, '..');
+// { '/api/intents': ['POST'], ... } — empty until the write engine lands.
+const MUTATING = server.MUTATING_ROUTES || {};
 
 let base;
 before(async () => {
@@ -27,60 +29,100 @@ before(async () => {
 });
 after(() => { server.server.close(); });
 
-// --- GET-only ----------------------------------------------------------------
+// --- method policy -------------------------------------------------------------
 
-test('GET-only: POST/PUT/PATCH/DELETE are refused with 405 on every surface', async () => {
-  const routes = [
+test('method policy: non-GET is 405 everywhere except the enumerated mutating routes', async () => {
+  const readRoutes = [
     '/',
     '/api/state',
     '/api/repo-health',
     '/api/project',
-    // A mutation attempt via a non-GET method must be refused by the method
-    // guard before any project-switch logic runs.
     '/api/project?root=' + encodeURIComponent(ROOT),
+    '/api/nonexistent-route',
   ];
   for (const method of ['POST', 'PUT', 'PATCH', 'DELETE']) {
-    for (const route of routes) {
+    for (const route of readRoutes) {
       const res = await fetch(base + route, { method });
       assert.strictEqual(res.status, 405, `${method} ${route} must be 405`);
     }
   }
 });
 
-// --- read-only: no write paths to source repositories -------------------------
-
-test('read-only: the only fs write in src/ is the cockpit-local project sidecar', () => {
-  const WRITE_CALL = /\bfs\.(writeFile|writeFileSync|appendFile|appendFileSync|createWriteStream|mkdir|mkdirSync|unlink|unlinkSync|rm|rmSync|rmdir|rmdirSync|rename|renameSync|copyFile|copyFileSync|truncate|truncateSync)\b/;
-  for (const name of fs.readdirSync(path.join(ROOT, 'src')).filter((n) => n.endsWith('.js'))) {
-    const lines = fs.readFileSync(path.join(ROOT, 'src', name), 'utf8').split('\n');
-    lines.forEach((line, i) => {
-      if (!WRITE_CALL.test(line)) return;
-      const ok = name === 'server.js' && line.includes('PROJECT_CONFIG_FILE');
-      assert.ok(ok, `src/${name}:${i + 1} contains an fs write outside the project-config sidecar: ${line.trim()}`);
-    });
+test('method policy: mutating routes refuse unguarded requests and undeclared methods', async () => {
+  for (const [route, methods] of Object.entries(MUTATING)) {
+    for (const method of methods) {
+      // No X-Dreamfeed-Token → the mutation guard must refuse before any handler
+      // logic runs. 403 (guard), never 2xx and never a handler error.
+      const res = await fetch(base + route, {
+        method,
+        headers: { 'Content-Type': 'application/json' },
+        body: '{}',
+      });
+      assert.strictEqual(res.status, 403, `unguarded ${method} ${route} must be 403`);
+    }
+    for (const method of ['PUT', 'PATCH', 'DELETE']) {
+      if (methods.includes(method)) continue;
+      const res = await fetch(base + route, { method });
+      assert.strictEqual(res.status, 405, `undeclared ${method} ${route} must be 405`);
+    }
   }
 });
 
-// --- localhost-only / self-hosted assets --------------------------------------
+// --- governed writes: no direct write path in src/ ------------------------------
 
-test('localhost-only: no external-origin URLs in served or server source files', () => {
-  // Hosts that are not network origins: loopback, the URL-parsing base in
-  // app.js, and the W3C namespace URIs baked into SVG/XHTML.
-  const ALLOWED_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]', 'dreamfeed.local', 'www.w3.org']);
-  const SERVED_EXT = new Set(['.html', '.js', '.css', '.svg']);
-  const URL_RE = /https?:\/\/([^\s/"'`)>;,]+)/g;
-
+test('read-only outside the write engine: fs writes in src/ are allowlisted', () => {
+  const WRITE_CALL = /\bfs\.(writeFile|writeFileSync|appendFile|appendFileSync|createWriteStream|mkdir|mkdirSync|unlink|unlinkSync|rm|rmSync|rmdir|rmdirSync|rename|renameSync|copyFile|copyFileSync|truncate|truncateSync)\b/;
+  // Files permitted to contain fs writes under Gate G. write.js is the single
+  // containment-checked source-repo write path; the commands/ store+ledger
+  // write only inside the .dreamfeed/ sidecar; server.js only the project
+  // sidecar line. Everything else in src/ stays read-only.
+  const ALLOWED_FILES = new Set(['write.js', path.join('commands', 'ledger.js'), path.join('commands', 'store.js')]);
   const files = [];
   (function walk(dir) {
     for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
       const p = path.join(dir, entry.name);
       if (entry.isDirectory()) walk(p);
-      else if (SERVED_EXT.has(path.extname(entry.name))) files.push(p);
+      else if (entry.name.endsWith('.js')) files.push(p);
     }
-  })(path.join(ROOT, 'public'));
-  for (const name of fs.readdirSync(path.join(ROOT, 'src')).filter((n) => n.endsWith('.js'))) {
-    files.push(path.join(ROOT, 'src', name));
+  })(path.join(ROOT, 'src'));
+  for (const file of files) {
+    const rel = path.relative(path.join(ROOT, 'src'), file);
+    if (ALLOWED_FILES.has(rel)) continue;
+    const lines = fs.readFileSync(file, 'utf8').split('\n');
+    lines.forEach((line, i) => {
+      if (!WRITE_CALL.test(line)) return;
+      const ok = rel === 'server.js' && line.includes('PROJECT_CONFIG_FILE');
+      assert.ok(ok, `src/${rel}:${i + 1} contains an fs write outside the governed write engine: ${line.trim()}`);
+    });
   }
+});
+
+// --- loopback serving / no hardcoded egress --------------------------------------
+
+test('loopback-only: no hardcoded external-origin URLs in served or server source files', () => {
+  // Hosts that are not network origins: loopback, the URL-parsing base in
+  // app.js, and the W3C namespace URIs baked into SVG/XHTML. Assistant provider
+  // endpoints must come from assistant-config.json (D31), never from source
+  // literals — so src/ has no exemption.
+  const ALLOWED_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]', 'dreamfeed.local', 'www.w3.org']);
+  const SERVED_EXT = new Set(['.html', '.js', '.css', '.svg']);
+  const URL_RE = /https?:\/\/([^\s/"'`)>;,]+)/g;
+
+  const files = [];
+  (function walk(dir, exts) {
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      const p = path.join(dir, entry.name);
+      if (entry.isDirectory()) walk(p, exts);
+      else if (exts.has(path.extname(entry.name))) files.push(p);
+    }
+  })(path.join(ROOT, 'public'), SERVED_EXT);
+  (function walkSrc(dir) {
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      const p = path.join(dir, entry.name);
+      if (entry.isDirectory()) walkSrc(p);
+      else if (entry.name.endsWith('.js')) files.push(p);
+    }
+  })(path.join(ROOT, 'src'));
 
   for (const file of files) {
     const text = fs.readFileSync(file, 'utf8');
@@ -89,7 +131,7 @@ test('localhost-only: no external-origin URLs in served or server source files',
       // preserving bracketed IPv6 hosts.
       const host = m[1].startsWith('[') ? m[1].slice(0, m[1].indexOf(']') + 1) : m[1].split(':')[0];
       assert.ok(ALLOWED_HOSTS.has(host),
-        `${path.relative(ROOT, file)} references external origin "${m[0]}" — served assets must be self-hosted`);
+        `${path.relative(ROOT, file)} references external origin "${m[0]}" — endpoints come from config, never source literals`);
     }
   }
 });
@@ -102,4 +144,22 @@ test('zero-dep: package.json declares no runtime dependencies', () => {
     const deps = Object.keys(pkg[field] || {});
     assert.deepStrictEqual(deps, [], `package.json ${field} must stay empty; found: ${deps.join(', ')}`);
   }
+});
+
+// --- denied operations are structurally unplannable ------------------------------
+
+test('denied class: git force-push and history rewrites never appear in the executor allowlist', () => {
+  // Static guard until (and after) the executor exists: no src/ file may build
+  // a git invocation containing force/history-rewrite flags.
+  const FORBIDDEN = /(push[^;\n]*--force|--force-with-lease|filter-branch|reset\s+--hard[^;\n]*origin)/;
+  (function walk(dir) {
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      const p = path.join(dir, entry.name);
+      if (entry.isDirectory()) walk(p);
+      else if (entry.name.endsWith('.js')) {
+        const text = fs.readFileSync(p, 'utf8');
+        assert.ok(!FORBIDDEN.test(text), `${path.relative(ROOT, p)} contains a forbidden git operation`);
+      }
+    }
+  })(path.join(ROOT, 'src'));
 });

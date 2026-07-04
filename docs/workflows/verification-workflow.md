@@ -34,13 +34,23 @@
   `docs: migrate Dreamfeed standalone source docs`
   `fix(project-picker): default to stakeport_os when no config`
 
-## Constraint checklist
+## Constraint checklist (Gate G, per D31)
 
 Before any commit, confirm:
 
-- [ ] Localhost-only: no external network calls added.
-- [ ] GET-only: no POST/PUT/PATCH/DELETE routes added without approval.
-- [ ] Read-only: no source-file write paths introduced.
+- [ ] Loopback serving: server still binds 127.0.0.1; guards on every route;
+      no new outbound egress outside the assistant adapter.
+- [ ] Method policy: non-GET handlers exist only on the enumerated mutating
+      routes; everything else returns 405.
+- [ ] Governed writes: every source-repo write goes through
+      intent → plan → approval → execute → ledger; no direct write path added.
+- [ ] Containment: writes are root-contained (dot-dot, realpath, `.git`/
+      `node_modules` blocks) and `rootToken`-bound.
+- [ ] Drift detection: approvals bind planHash; changed base hashes invalidate.
+- [ ] Ledger: every lifecycle transition appends an event; chain verifies; no
+      event mutation.
+- [ ] Policy: new operations carry an explicit policy class; unknown → denied.
 - [ ] Six-object model: Gate C semantics unchanged.
-- [ ] Three-tier provenance: Canonical / Derived / Candidate labels preserved.
-- [ ] Self-hosted assets: no new CDN runtime dependencies.
+- [ ] Three-tier provenance: Canonical / Derived / Candidate labels preserved
+      (native schema included).
+- [ ] Self-hosted assets: no new CDN runtime dependencies; zero runtime deps.

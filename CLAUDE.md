@@ -8,20 +8,34 @@ Dreamfeed Command Center is a standalone Git repository.
 - Stakeport OS is a **separate** repo at `C:\Projects\stakeport_os` and is selected
   at runtime via the Project picker — it is not embedded here.
 
-## Runtime constraints (do not relax without a founder-approved decision)
+## Runtime constraints (PS-003 / Gate G — do not relax without a founder-approved decision)
 
-- Localhost-only. No external network calls from the server.
-- GET-only. No write paths to source repositories.
-- Read-only. No variable mutation, pause/resume, halt, or rollback controls.
-- In-memory UI state. Non-persistent V1 boundary.
-- Project switching must preserve workspace isolation: one active project per
-  server, containment enforced against the user-chosen root, no cross-project
-  state leakage.
+Hard constraints (unchanged from Gate F):
+- Localhost-only **serving**: bind 127.0.0.1; host/origin/token guards on every
+  route. Outbound egress is allowed only from the assistant adapter to
+  user-configured model-provider endpoints (D31).
+- Workspace isolation: one active project per server, realpath containment
+  against the user-chosen root, `rootToken` binding on every mutation, no
+  cross-project writes, no parent scanning or fallback roots.
+- Zero runtime dependencies.
+- Gate C parser semantics for the six Stakeport object families unchanged.
+- Secrets never in project repos, ledger, traces, or logs.
 
-These constraints are binding under PS-002 Phase 1 and Gate F. The next
-execution-enabled phase requires explicit founder approval. Any relaxation of
-these constraints requires a `docs/decisions/dNN` record **before**
-implementation. `test/constraints.test.js` enforces them mechanically.
+Write mode (relaxed by D31, scoped):
+- Non-GET methods exist **only** on the enumerated mutating routes; everything
+  else stays 405.
+- Source-repo writes happen **only** through the governed lifecycle
+  (intent → plan → explicit approval → execute → immutable ledger) with
+  base-hash drift detection and policy classes (`auto`/`approve`/`founder`/
+  `denied` per `os/policy.md`).
+- Control-plane records live in the gitignored `.dreamfeed/` sidecar, never as
+  hidden truth in source repos.
+- Free-form terminal and deploy triggers are **not** in scope (D32 candidates);
+  git write actions are limited to the safe named allowlist
+  (add/commit/branch/switch `approve`-class; push `founder`-class).
+
+Any further relaxation requires a `docs/decisions/dNN` record **before**
+implementation. `test/constraints.test.js` enforces this envelope mechanically.
 
 ## Before major changes
 
