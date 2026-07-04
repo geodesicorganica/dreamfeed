@@ -871,7 +871,45 @@ function renderStatusStrip() {
     : '';
   const pending = pendingApprovals().length
     ? `<span class="strip-item strip-warn">APPROVALS ${pendingApprovals().length}</span>` : '';
-  return `<div class="status-strip" role="status" aria-label="Sprint and workspace status">${sprint}<span class="strip-sep"></span>${git}<span class="strip-sep"></span>${chain}${pending}</div>`;
+  // Safe named git actions (D31 step 5): each button raises an intent through
+  // the governed lifecycle; readiness verdicts disable unsafe actions with an
+  // explicit reason (never silently).
+  const wr = h && h.writeReadiness;
+  const gitBtn = (op, label, r, extra = '') => r
+    ? `<button type="button" class="command-button task-action" data-git-op="${op}" ${r.ok ? '' : 'disabled'} title="${esc(r.ok ? (r.warning || r.reason) : `unavailable: ${r.reason}`)}">${label}${extra}</button>`
+    : '';
+  const actions = wr ? `<span class="strip-sep"></span>
+    ${gitBtn('git-add', 'Stage all', wr.gitAdd)}
+    ${gitBtn('git-commit', 'Commit…', wr.gitCommit)}
+    ${gitBtn('git-branch', 'Branch…', wr.gitBranch)}
+    ${gitBtn('git-switch', 'Switch…', wr.gitSwitch, wr.gitSwitch.warning ? ' ⚠' : '')}
+    ${gitBtn('git-push', 'Push…', wr.gitPush)}` : '';
+  return `<div class="status-strip" role="status" aria-label="Sprint and workspace status">${sprint}<span class="strip-sep"></span>${git}<span class="strip-sep"></span>${chain}${pending}${actions}</div>`;
+}
+
+// Raise a named git intent → plan → approval dialog. Push is founder class:
+// the dialog demands the typed plan id. Nothing executes without the dialog.
+async function runGitAction(op) {
+  const payload = {};
+  if (op === 'git-commit') {
+    const message = window.prompt('Commit message (staged files only):');
+    if (message === null || !message.trim()) return;
+    payload.message = message.trim();
+  }
+  if (op === 'git-branch' || op === 'git-switch') {
+    const name = window.prompt(op === 'git-branch' ? 'New branch name (creates and switches):' : 'Branch to switch to:');
+    if (name === null || !name.trim()) return;
+    payload.name = name.trim();
+  }
+  try {
+    const ir = await postMutation('/api/intents', { kind: op, payload });
+    const iData = await ir.json().catch(() => ({}));
+    if (!ir.ok) { feedback(`Intent refused: ${iData.error || ir.status}`); render(); return; }
+    const pr = await postMutation(`/api/intents/${encodeURIComponent(iData.intent.id)}/plan`, {});
+    const pData = await pr.json().catch(() => ({}));
+    if (!pr.ok) { feedback(`Plan refused (${pr.status}): ${pData.error || 'unknown'}`); render(); return; }
+    openApprovalDialog(pData.plan);
+  } catch (err) { feedback(`Git action failed: ${String(err)}`); render(); }
 }
 function renderBottomPanel() {
   const panel = $('#bottomPanel'); if (!panel || !state) return;
@@ -896,6 +934,7 @@ function renderBottomPanel() {
     const plan = (lifecycleData?.plans || []).find((p) => p.id === el.dataset.reviewPlan);
     if (plan) openApprovalDialog(plan);
   }));
+  panel.querySelectorAll('[data-git-op]').forEach((el) => el.addEventListener('click', () => runGitAction(el.dataset.gitOp)));
   panel.querySelectorAll('[data-rollback]').forEach((el) => el.addEventListener('click', async () => {
     const id = el.dataset.rollback;
     const typed = window.prompt(`Rollback is a founder-class override. Type the execution id to confirm:\n${id}`);

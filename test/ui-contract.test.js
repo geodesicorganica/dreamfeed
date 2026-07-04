@@ -74,6 +74,12 @@ test('Gate G surfaces: workstream navigator, queue lens, approval dialog, assist
     assert.ok(app.includes(`'${mode}'`), `assistant mode present: ${mode}`);
   }
   assert.match(app, /function renderStatusStrip\(\)/, 'bottom status strip exists');
+  assert.match(app, /data-git-op=/, 'named git actions surface in the status strip');
+  for (const op of ['git-add', 'git-commit', 'git-branch', 'git-switch', 'git-push']) {
+    assert.ok(app.includes(`'${op}'`), `named git action wired: ${op}`);
+  }
+  assert.match(app, /writeReadiness/, 'git actions are gated by per-op readiness verdicts');
+  assert.match(app, /function runGitAction\(/, 'git actions raise intents through the governed lifecycle');
   assert.match(app, /function postMutation\(/, 'mutations go through one guarded POST helper');
   assert.match(app, /'X-Dreamfeed-Token': actionToken/, 'mutation helper carries the action token header');
   assert.doesNotMatch(app, /fetch\([^)]*token=/, 'no token ever appears in a query string');

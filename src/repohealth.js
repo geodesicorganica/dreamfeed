@@ -99,6 +99,7 @@ function getRepoHealth(repoRoot = REPO_ROOT) {
       counts: { staged: 0, unstaged: 0, untracked: 0 },
       lastCommit: null, upstream: { exists: false, ahead: null, behind: null },
       safeToProceed: null, safeReason: 'no project configured', errors: [],
+      writeReadiness: noRepoReadiness('no project configured'),
       audit: { everRun: false, auditConfigured: false, workflow: AUDIT_WORKFLOW },
       validationCommands: [],
     };
@@ -124,6 +125,7 @@ function getRepoHealth(repoRoot = REPO_ROOT) {
   if (!branch.ok) {
     result.isRepo = false; result.errors.push(`branch: ${branch.error}`);
     result.safeToProceed = false; result.safeReason = 'not a git repository (or git unavailable)';
+    result.writeReadiness = noRepoReadiness(result.safeReason);
     result.audit = readAudit(now, null, null, repoRoot, auditConfigured, sidecar);
     result.validationCommands = result.audit.everRun ? result.audit.commands : (auditConfigured ? neverRunCommands() : []);
     return result;
@@ -168,9 +170,44 @@ function getRepoHealth(repoRoot = REPO_ROOT) {
     result.safeReason = `uncommitted changes present (${parts.join(', ')}) — review before destructive actions`;
   } else { result.safeReason = 'git status unavailable'; }
 
+  result.writeReadiness = computeWriteReadiness(result);
   result.audit = readAudit(now, result.lastCommit && result.lastCommit.date, result.clean, repoRoot, auditConfigured, sidecar);
   result.validationCommands = result.audit.everRun ? result.audit.commands : (auditConfigured ? neverRunCommands() : []);
   return result;
+}
+
+// ---------------------------------------------------------------------------
+// Gate G (D31 step 5): per-operation readiness for the SAFE NAMED git actions.
+// This module stays read-only — it only *judges* readiness; the governed
+// executor performs the operations. Note the verdicts are op-specific because
+// a blanket "clean tree" gate is wrong for writes: commit REQUIRES a dirty
+// tree, while switch prefers a clean one.
+// ---------------------------------------------------------------------------
+function noRepoReadiness(reason) {
+  const off = { ok: false, reason };
+  return { gitAdd: off, gitCommit: off, gitBranch: off, gitSwitch: off, gitPush: off };
+}
+
+function computeWriteReadiness(r) {
+  if (!r.isRepo) return noRepoReadiness(r.safeReason || 'not a git repository');
+  const dirtyUnstaged = r.counts.unstaged + r.counts.untracked;
+  return {
+    gitAdd: dirtyUnstaged > 0
+      ? { ok: true, reason: `${dirtyUnstaged} file(s) to stage` }
+      : { ok: false, reason: 'nothing to stage' },
+    gitCommit: r.counts.staged > 0
+      ? { ok: true, reason: `${r.counts.staged} file(s) staged` }
+      : { ok: false, reason: 'nothing staged' },
+    gitBranch: { ok: true, reason: `from ${r.branch}` },
+    gitSwitch: r.clean
+      ? { ok: true, reason: 'working tree clean' }
+      : { ok: true, warning: 'uncommitted changes may block or carry over on switch', reason: 'tree dirty' },
+    gitPush: !r.upstream.exists
+      ? { ok: false, reason: 'no upstream configured' }
+      : (r.upstream.ahead > 0
+        ? { ok: true, reason: `${r.upstream.ahead} commit(s) ahead` }
+        : { ok: false, reason: 'nothing to push' }),
+  };
 }
 
 module.exports = { getRepoHealth, READONLY_SUBCOMMANDS, AUDIT_STATUS_FILE };
