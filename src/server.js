@@ -11,6 +11,11 @@ const { buildState } = require('./state');
 const { buildQueue, buildSprintMetrics } = require('./queue');
 const { buildNativeState } = require('./nativeSchema');
 const { getRepoHealth } = require('./repohealth');
+const { computePlan } = require('./commands/plans');
+const { loadPolicy } = require('./commands/policy');
+const { approvePlan, executePlan, requestHalt, rollbackExecution } = require('./commands/executor');
+const cpStore = require('./commands/store');
+const { appendEvent, readLedger, verifyChain } = require('./commands/ledger');
 const { REPO_ROOT, canonicalRoot, canonicalKey, rootToken } = require('./parse');
 const projectPicker = require('./projectPicker');
 
@@ -312,10 +317,172 @@ function emptyState() {
   };
 }
 
+// ---------------------------------------------------------------------------
+// Gate G mutating surface (D31). The ONLY route+method pairs that accept
+// non-GET requests; anything else stays 405 exactly as under Gate F. Every
+// entry is behind guardMutationStrict + the governed lifecycle. Exported so
+// test/constraints.test.js enforces this table behaviorally.
+// ---------------------------------------------------------------------------
+const MUTATING_ROUTES = Object.freeze({
+  '/api/intents': ['POST'],
+  '/api/intents/:id/plan': ['POST'],
+  '/api/plans/:id/approve': ['POST'],
+  '/api/plans/:id/execute': ['POST'],
+  '/api/executions/:id/halt': ['POST'],
+  '/api/executions/:id/rollback': ['POST'],
+  '/api/work/tasks/transition': ['POST'],
+});
+const BODY_CAP = 1024 * 1024;
+
+function matchMutating(url) {
+  const segs = url.split('/').filter(Boolean);
+  for (const [pattern, methods] of Object.entries(MUTATING_ROUTES)) {
+    const pSegs = pattern.split('/').filter(Boolean);
+    if (pSegs.length !== segs.length) continue;
+    const params = {};
+    let ok = true;
+    for (let i = 0; i < pSegs.length; i++) {
+      if (pSegs[i].startsWith(':')) params[pSegs[i].slice(1)] = decodeURIComponent(segs[i]);
+      else if (pSegs[i] !== segs[i]) { ok = false; break; }
+    }
+    if (ok) return { pattern, methods, params };
+  }
+  return null;
+}
+
+// Non-GET guard: everything guardMutation checks, PLUS a present loopback
+// Origin header (browsers always send Origin on non-GET fetch; its absence
+// marks a non-browser client that must still present the token) is NOT
+// required — the token remains the gate — but when Origin/Referer are present
+// they must be loopback (originRefererOk inside localRequestGuard).
+function readJsonBody(req, cb) {
+  const chunks = [];
+  let size = 0;
+  let done = false;
+  req.on('data', (c) => {
+    if (done) return;
+    size += c.length;
+    if (size > BODY_CAP) { done = true; cb({ error: 'body too large', status: 413 }); req.destroy(); return; }
+    chunks.push(c);
+  });
+  req.on('end', () => {
+    if (done) return;
+    done = true;
+    const raw = Buffer.concat(chunks).toString('utf8');
+    if (!raw.trim()) { cb(null, {}); return; }
+    const ct = String(req.headers['content-type'] || '');
+    if (!ct.includes('application/json')) { cb({ error: 'Content-Type must be application/json', status: 415 }); return; }
+    try { cb(null, JSON.parse(raw)); } catch { cb({ error: 'invalid JSON body', status: 400 }); }
+  });
+  req.on('error', () => { if (!done) { done = true; cb({ error: 'request aborted', status: 400 }); } });
+}
+
+// Map engine error codes to HTTP statuses.
+const CODE_STATUS = {
+  'validation': 400, 'not-found': 404, 'containment': 404, 'no-project': 409,
+  'drift': 409, 'root-drift': 409, 'state': 409, 'busy': 409, 'approval': 409,
+  'unsafe': 409, 'diverged': 409, 'no-preimage': 409, 'confirm-required': 403,
+  'policy-denied': 422, 'io': 500,
+};
+function sendEngineError(res, out) {
+  sendJson(res, CODE_STATUS[out.code] || 400, { error: out.error, code: out.code });
+}
+
+function handleMutation(req, res, url, body) {
+  const m = matchMutating(url);
+  const { params } = m;
+  const policy = loadPolicy(currentRoot);
+
+  if (m.pattern === '/api/intents') {
+    const kind = String(body.kind || '');
+    if (!kind || kind.length > 64) { sendJson(res, 400, { error: 'intent kind required', code: 'validation' }); return; }
+    const intent = cpStore.create('intents', 'int', { kind, payload: body.payload || {}, rootToken: currentRoot ? rootToken(currentRoot) : null });
+    appendEvent({ type: 'intent-created', intentId: intent.id, kind });
+    sendJson(res, 201, { intent });
+    return;
+  }
+  if (m.pattern === '/api/intents/:id/plan') {
+    const intent = cpStore.get('intents', params.id);
+    if (!intent) { sendJson(res, 404, { error: 'intent not found', code: 'not-found' }); return; }
+    const out = computePlan(intent, { repoRoot: currentRoot, policy });
+    if (out.error) { sendEngineError(res, out); return; }
+    const plan = cpStore.create('plans', 'pln', out.plan);
+    appendEvent({ type: 'plan-computed', intentId: intent.id, planId: plan.id, planHash: plan.planHash, class: plan.class, summary: plan.summary });
+    // auto class: policy itself is the approval authority (still ledgered).
+    if (plan.class === 'auto') {
+      const a = approvePlan(plan, { actor: 'policy:auto' }, currentRoot);
+      if (a.error) { sendEngineError(res, a); return; }
+      sendJson(res, 200, { plan, approval: a.approval });
+      return;
+    }
+    sendJson(res, 200, { plan });
+    return;
+  }
+  if (m.pattern === '/api/plans/:id/approve') {
+    const plan = cpStore.get('plans', params.id);
+    if (!plan) { sendJson(res, 404, { error: 'plan not found', code: 'not-found' }); return; }
+    const out = approvePlan(plan, { actor: 'operator', confirm: body.confirm }, currentRoot);
+    if (out.error) { sendEngineError(res, out); return; }
+    sendJson(res, 200, { plan, approval: out.approval });
+    return;
+  }
+  if (m.pattern === '/api/plans/:id/execute') {
+    const plan = cpStore.get('plans', params.id);
+    if (!plan) { sendJson(res, 404, { error: 'plan not found', code: 'not-found' }); return; }
+    const out = executePlan(plan, { actor: 'operator', health: getRepoHealth(currentRoot) }, currentRoot);
+    if (out.error) { sendEngineError(res, out); return; }
+    sendJson(res, 200, { execution: out.execution });
+    return;
+  }
+  if (m.pattern === '/api/executions/:id/halt') {
+    const out = requestHalt(params.id, { actor: 'operator' });
+    if (out.error) { sendEngineError(res, out); return; }
+    sendJson(res, 200, out);
+    return;
+  }
+  if (m.pattern === '/api/executions/:id/rollback') {
+    const execution = cpStore.get('executions', params.id);
+    if (!execution) { sendJson(res, 404, { error: 'execution not found', code: 'not-found' }); return; }
+    const out = rollbackExecution(execution, { actor: 'operator', confirm: body.confirm }, currentRoot, policy);
+    if (out.error) { sendEngineError(res, out); return; }
+    sendJson(res, 200, { execution: out.execution });
+    return;
+  }
+  if (m.pattern === '/api/work/tasks/transition') {
+    // Daily-queue sugar: intent + plan in one call; auto-class plans execute
+    // immediately (fully ledgered); approve-class plans come back pending.
+    const intent = cpStore.create('intents', 'int', { kind: 'task-transition', payload: { taskId: body.taskId, to: body.to }, rootToken: currentRoot ? rootToken(currentRoot) : null });
+    appendEvent({ type: 'intent-created', intentId: intent.id, kind: intent.kind });
+    const out = computePlan(intent, { repoRoot: currentRoot, policy });
+    if (out.error) { sendEngineError(res, out); return; }
+    const plan = cpStore.create('plans', 'pln', out.plan);
+    appendEvent({ type: 'plan-computed', intentId: intent.id, planId: plan.id, planHash: plan.planHash, class: plan.class, summary: plan.summary });
+    if (plan.class !== 'auto') { sendJson(res, 202, { intent, plan, pending: 'approval' }); return; }
+    const a = approvePlan(plan, { actor: 'policy:auto' }, currentRoot);
+    if (a.error) { sendEngineError(res, a); return; }
+    const x = executePlan(plan, { actor: 'operator', health: getRepoHealth(currentRoot) }, currentRoot);
+    if (x.error) { sendEngineError(res, x); return; }
+    sendJson(res, 200, { intent, plan, execution: x.execution });
+    return;
+  }
+  sendJson(res, 404, { error: 'not found', code: 'not-found' });
+}
+
 const server = http.createServer((req, res) => {
   if (req.method !== 'GET') {
-    res.writeHead(405, { 'Content-Type': 'text/plain' });
-    res.end('Dreamfeed is read-only: GET only.');
+    const m = matchMutating(req.url.split('?')[0]);
+    if (!m || !m.methods.includes(req.method)) {
+      res.writeHead(405, { 'Content-Type': 'text/plain' });
+      res.end('Method not allowed. Mutations exist only on the governed lifecycle routes (D31).');
+      return;
+    }
+    const g = guardMutation(req);
+    if (!g.ok) { sendJson(res, g.status, { error: g.error }); return; }
+    readJsonBody(req, (err, body) => {
+      if (err) { sendJson(res, err.status, { error: err.error }); return; }
+      try { handleMutation(req, res, req.url.split('?')[0], body); }
+      catch (e) { sendJson(res, 500, { error: String(e.message || e) }); }
+    });
     return;
   }
   const url = req.url.split('?')[0];
@@ -418,6 +585,18 @@ const server = http.createServer((req, res) => {
     } catch (err) { sendJson(res, 500, { fatal: String(err.message || err) }); }
     return;
   }
+  if (url === '/api/ledger') {
+    try {
+      const after = parseInt(params.get('after') || '0', 10) || 0;
+      sendJson(res, 200, { events: readLedger({ after }), chain: verifyChain() });
+    } catch (err) { sendJson(res, 500, { fatal: String(err.message || err) }); }
+    return;
+  }
+  if (url === '/api/lifecycle') {
+    try { sendJson(res, 200, cpStore.snapshot()); }
+    catch (err) { sendJson(res, 500, { fatal: String(err.message || err) }); }
+    return;
+  }
   if (url === '/api/file') {
     if (!currentRoot) { sendJson(res, 409, { error: 'no project configured' }); return; }
     const token = params.get('token');
@@ -454,6 +633,7 @@ if (require.main === module) {
 module.exports = {
   server, PORT, readRepoFile, validateRoot, projectDescriptor,
   localRequestGuard, guardMutation, ACTION_TOKEN,
+  MUTATING_ROUTES,
   PROJECT_CONFIG_FILE,
   // Test-only accessors for the in-memory active root / recent list.
   _getCurrentRoot: () => currentRoot,
