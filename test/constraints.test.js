@@ -19,8 +19,13 @@ process.env.DREAMFEED_NO_NATIVE = '1';
 const server = require('../src/server');
 
 const ROOT = path.join(__dirname, '..');
-// { '/api/intents': ['POST'], ... } — empty until the write engine lands.
+// { '/api/intents': ['POST'], ... }. Assert the export exists and is populated
+// so a rename/drop of the table can't silently turn the envelope tests below
+// into vacuous zero-iteration no-ops.
 const MUTATING = server.MUTATING_ROUTES || {};
+test('envelope table is exported and non-empty (guards the tests below from going vacuous)', () => {
+  assert.ok(Object.keys(MUTATING).length >= 6, 'MUTATING_ROUTES export must enumerate the mutating surface');
+});
 
 let base;
 before(async () => {

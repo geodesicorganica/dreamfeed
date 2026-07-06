@@ -172,12 +172,15 @@ test('rollback: founder confirmation, preimage restore, divergence refusal', asy
   assert.strictEqual((await refused.json()).code, 'diverged');
 });
 
-test('halt: completed executions cannot be halted', async () => {
+test('halt: mid-flight halt is deferred — the route is not exposed', async () => {
+  // The synchronous single-op executor cannot service a halt mid-execution, so
+  // the capability is deliberately unimplemented (see executor.js note). The
+  // route must simply not exist rather than advertise a control that can't fire.
   const lifecycle = await (await fetch(base + '/api/lifecycle')).json();
   const done = lifecycle.executions.find((e) => e.status === 'succeeded');
   assert.ok(done);
   const res = await post(`/api/executions/${done.id}/halt`);
-  assert.strictEqual(res.status, 409);
+  assert.strictEqual(res.status, 405, 'halt route is not part of the mutating surface');
 });
 
 test('transport: non-JSON bodies and denied methods are refused', async () => {
@@ -196,4 +199,47 @@ test('validation: bad target status and unknown task are 400/404', async () => {
   assert.strictEqual(bad.status, 400);
   const missing = await post('/api/work/tasks/transition', { taskId: 'nope:X9', to: 'done' });
   assert.strictEqual(missing.status, 404);
+});
+
+test('transport: a malformed percent-escape in a mutating path is 405, not a crash', async () => {
+  const res = await post('/api/plans/%E0%A4%A/approve'); // invalid %-sequence
+  assert.strictEqual(res.status, 405, 'unmatched/undecodable path falls through to 405');
+  // The server is still alive afterward (the URIError did not escape the handler).
+  const alive = await fetch(base + '/api/lifecycle');
+  assert.strictEqual(alive.status, 200);
+});
+
+test('isolation: an intent cannot be planned against a different project than it was raised under', async () => {
+  const ir = await post('/api/intents', { kind: 'task-transition', payload: { taskId: 'ship-cockpit:T1', to: 'active' } });
+  const { intent } = await ir.json();
+  const other = fs.mkdtempSync(path.join(os.tmpdir(), 'df-other-'));
+  server._setCurrentRoot(other);
+  try {
+    const pr = await post(`/api/intents/${intent.id}/plan`);
+    assert.strictEqual(pr.status, 409);
+    assert.strictEqual((await pr.json()).code, 'root-drift');
+  } finally {
+    server._setCurrentRoot(PROJ);
+    fs.rmSync(other, { recursive: true, force: true });
+  }
+});
+
+test('containment: a task title containing an escaped pipe round-trips without corrupting the table', async () => {
+  const rel = 'os/goals/pipes.md';
+  fs.writeFileSync(path.join(PROJ, rel),
+    '---\nschema: dreamfeed/v1\ntype: goal\nstatus: active\n---\n# Goal: Pipes\n\n' +
+    '## Phase: P\n\n### Milestone: M\n\n' +
+    '| ID | Task | Status | Est | Scheduled | Owner |\n|---|---|---|---|---|---|\n' +
+    '| P1 | compare a \\| b | planned | 1h | 2026-07-10 | me |\n', 'utf8');
+  const res = await post('/api/work/tasks/transition', { taskId: 'pipes:P1', to: 'active' });
+  assert.strictEqual(res.status, 200);
+  const after = fs.readFileSync(path.join(PROJ, rel), 'utf8');
+  assert.match(after, /compare a \\\| b/, 'escaped pipe is preserved on write-back');
+  // The file still parses as one task with the new status (no phantom column).
+  const { buildNativeState } = require('../src/nativeSchema');
+  const st = buildNativeState({ repoRoot: PROJ });
+  assert.deepStrictEqual(st.parseErrors.filter((e) => e.path === rel), []);
+  const task = st.goals.find((g) => g.id.value === 'pipes').phases[0].milestones[0].tasks[0];
+  assert.strictEqual(task.title.value, 'compare a | b');
+  assert.strictEqual(task.status.value, 'active');
 });

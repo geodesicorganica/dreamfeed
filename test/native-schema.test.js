@@ -11,7 +11,9 @@ const { buildNativeState, hasNativeSchema, findTask } = require('../src/nativeSc
 const { buildQueue, buildSprintMetrics } = require('../src/queue');
 
 const FIXTURE_ROOT = path.join(__dirname, 'fixtures', 'dreamfeed-native');
-const TODAY = new Date('2026-07-10T12:00:00Z');
+// Local-noon (not UTC) so isoDay's local-calendar classification is stable
+// regardless of the test runner's timezone.
+const TODAY = new Date(2026, 6, 10, 12, 0, 0);
 const TIERS = ['Canonical', 'Derived', 'Candidate'];
 
 function native() { return buildNativeState({ repoRoot: FIXTURE_ROOT, today: TODAY }); }

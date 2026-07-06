@@ -29,23 +29,40 @@ const SAFE_PATHSPEC = /^[^-][^\0]*$/;
 function lineDiff(before, after) {
   const a = String(before ?? '').split('\n');
   const b = String(after ?? '').split('\n');
-  const m = a.length, n = b.length;
-  // DP table capped for pathological inputs; work files are small (≤512KB cap upstream).
+  // Trim the common prefix and suffix first: a single-line edit collapses the
+  // LCS problem to ~1×1, so the quadratic DP table is only ever allocated over
+  // the genuinely-changed middle (never the whole file). `base` offsets the
+  // reported line numbers back into the original coordinates.
+  let start = 0;
+  while (start < a.length && start < b.length && a[start] === b[start]) start++;
+  let endA = a.length, endB = b.length;
+  while (endA > start && endB > start && a[endA - 1] === b[endB - 1]) { endA--; endB--; }
+  const midA = a.slice(start, endA);
+  const midB = b.slice(start, endB);
+  const changes = [];
+  const m = midA.length, n = midB.length;
+  // Hard cap: if the changed region is still huge, emit a block replace rather
+  // than allocate an O(m·n) table. Every diff this feature produces is tiny;
+  // this only guards against a pathological or adversarial input.
+  if (m * n > 250000) {
+    for (let k = 0; k < m; k++) changes.push({ type: 'del', line: start + k + 1, text: midA[k] });
+    for (let k = 0; k < n; k++) changes.push({ type: 'add', line: start + k + 1, text: midB[k] });
+    return changes.slice(0, 400);
+  }
   const dp = Array.from({ length: m + 1 }, () => new Uint32Array(n + 1));
   for (let i = m - 1; i >= 0; i--) {
     for (let j = n - 1; j >= 0; j--) {
-      dp[i][j] = a[i] === b[j] ? dp[i + 1][j + 1] + 1 : Math.max(dp[i + 1][j], dp[i][j + 1]);
+      dp[i][j] = midA[i] === midB[j] ? dp[i + 1][j + 1] + 1 : Math.max(dp[i + 1][j], dp[i][j + 1]);
     }
   }
-  const changes = [];
   let i = 0, j = 0;
   while (i < m && j < n) {
-    if (a[i] === b[j]) { i++; j++; }
-    else if (dp[i + 1][j] >= dp[i][j + 1]) { changes.push({ type: 'del', line: i + 1, text: a[i] }); i++; }
-    else { changes.push({ type: 'add', line: j + 1, text: b[j] }); j++; }
+    if (midA[i] === midB[j]) { i++; j++; }
+    else if (dp[i + 1][j] >= dp[i][j + 1]) { changes.push({ type: 'del', line: start + i + 1, text: midA[i] }); i++; }
+    else { changes.push({ type: 'add', line: start + j + 1, text: midB[j] }); j++; }
   }
-  while (i < m) { changes.push({ type: 'del', line: i + 1, text: a[i] }); i++; }
-  while (j < n) { changes.push({ type: 'add', line: j + 1, text: b[j] }); j++; }
+  while (i < m) { changes.push({ type: 'del', line: start + i + 1, text: midA[i] }); i++; }
+  while (j < n) { changes.push({ type: 'add', line: start + j + 1, text: midB[j] }); j++; }
   return changes.slice(0, 400);
 }
 
@@ -70,7 +87,11 @@ function planTaskTransition(intent, repoRoot) {
   if (cells[0] !== hit.cells[0]) return { error: 'task row moved since lookup', code: 'drift' };
   const from = cells[2];
   cells[2] = to;
-  lines[hit.line - 1] = `| ${cells.join(' | ')} |`;
+  // splitRow (parse.js) UNESCAPES `\|` → `|` inside cells, so the rebuilt row
+  // must RE-ESCAPE literal pipes; otherwise a cell containing a pipe injects a
+  // spurious column delimiter and corrupts the table on write-back.
+  const escapeCell = (c) => String(c).replace(/\|/g, '\\|');
+  lines[hit.line - 1] = `| ${cells.map(escapeCell).join(' | ')} |`;
   const eol = hit.content.includes('\r\n') ? '\r\n' : '\n';
   const newContent = lines.join(eol);
   return {

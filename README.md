@@ -68,6 +68,10 @@ ledger, or logs):
 { "provider": "cli", "cli": { "command": "claude", "args": ["-p"] } }
 ```
 
+The prompt is delivered to the CLI on **stdin** (so it works cross-platform,
+including Windows `.cmd` shims, and avoids arg-length limits). The configured
+command must read its prompt from stdin.
+
 ```json
 { "provider": "http", "http": { "url": "http://localhost:11434/api/chat", "model": "llama3.1" } }
 ```

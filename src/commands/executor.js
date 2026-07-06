@@ -16,7 +16,6 @@ const { appendEvent } = require('./ledger');
 const GIT_SUBCOMMANDS = new Set(['add', 'commit', 'switch', 'push']);
 
 let running = null; // serial executor: id of the in-flight execution
-const haltRequests = new Set();
 
 function approvePlan(plan, { actor = 'operator', confirm } = {}, repoRoot) {
   if (plan.status !== 'planned') return { error: `plan is ${plan.status}, not approvable`, code: 'state' };
@@ -59,15 +58,14 @@ function executePlan(plan, { actor = 'operator', health } = {}, repoRoot) {
   const execution = store.create('executions', 'exe', {
     planId: plan.id, opName: plan.opName, status: 'executing', results: [], preimages: [], actor,
   });
-  running = execution.id;
-  appendEvent({ type: 'execution-started', actor, executionId: execution.id, planId: plan.id, planHash: plan.planHash });
+  // Acquire the lock and emit the start event INSIDE the try: if the started
+  // append throws (e.g. a torn ledger line from a prior crash), the finally
+  // still releases `running` and persists the execution as failed. Setting the
+  // lock before the try would strand it permanently on such a throw.
   try {
+    running = execution.id;
+    appendEvent({ type: 'execution-started', actor, executionId: execution.id, planId: plan.id, planHash: plan.planHash });
     for (let i = 0; i < plan.ops.length; i++) {
-      if (haltRequests.has(execution.id)) {
-        execution.status = 'halted';
-        appendEvent({ type: 'execution-halted', actor, executionId: execution.id, afterOp: i, priorState: 'executing', resultState: 'halted' });
-        break;
-      }
       const op = plan.ops[i];
       if (op.type === 'write-file') {
         const w = writeRepoFile(op.path, op.content, repoRoot, { baseHash: op.baseHash });
@@ -94,7 +92,6 @@ function executePlan(plan, { actor = 'operator', health } = {}, repoRoot) {
     appendEvent({ type: 'execution-failed', actor, executionId: execution.id, error: execution.error, priorState: 'executing', resultState: 'failed' });
   } finally {
     running = null;
-    haltRequests.delete(execution.id);
     execution.endedAt = new Date().toISOString();
     store.put('executions', execution);
     plan.status = execution.status === 'succeeded' ? 'executed' : plan.status;
@@ -103,14 +100,12 @@ function executePlan(plan, { actor = 'operator', health } = {}, repoRoot) {
   return { execution };
 }
 
-function requestHalt(executionId, { actor = 'operator' } = {}) {
-  const execution = store.get('executions', executionId);
-  if (!execution) return { error: 'execution not found', code: 'not-found' };
-  if (execution.status !== 'executing') return { error: `execution is ${execution.status}; nothing to halt`, code: 'state' };
-  haltRequests.add(executionId);
-  appendEvent({ type: 'halt-requested', actor, executionId });
-  return { ok: true };
-}
+// Note (D31): mid-flight pause/resume/halt are deliberately NOT implemented.
+// executePlan is synchronous (execFileSync/writeFileSync) and current plans are
+// single-op, so a halt request could never be serviced while an execution is in
+// flight — the capability requires a multi-op async executor and is deferred to
+// a future decision (D32 candidate). Rollback (post-execution, founder-class)
+// is the implemented override.
 
 // Rollback: founder-class override. Only write-file ops carry preimages; the
 // rollback is refused if any touched file diverged after execution (per the
@@ -138,4 +133,4 @@ function rollbackExecution(execution, { actor = 'operator', confirm } = {}, repo
   return { execution };
 }
 
-module.exports = { approvePlan, executePlan, requestHalt, rollbackExecution };
+module.exports = { approvePlan, executePlan, rollbackExecution };

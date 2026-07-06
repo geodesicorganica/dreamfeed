@@ -8,7 +8,16 @@ const { field } = require('./parse');
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
-function isoDay(d) { return d.toISOString().slice(0, 10); }
+// LOCAL calendar day (not UTC): task Scheduled values are local calendar dates,
+// so today/rollover/upcoming must be judged in the operator's local zone.
+// toISOString() would shift the boundary by the UTC offset and misclassify
+// tasks around local midnight.
+function isoDay(d) {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
 
 function collectItems(native) {
   const items = [];

@@ -17,8 +17,9 @@ call. Nothing here accepts a gate.
 3. **Write engine** — `src/write.js` (single containment-checked write path),
    `src/commands/` (store, hash-chained ledger, policy classes, pure plan
    computation with LCS diff previews and planHash binding, serial executor
-   with drift re-checks, founder typed confirmation, halt, divergence-refusing
-   rollback), guarded POST lifecycle routes.
+   with drift re-checks, founder typed confirmation, divergence-refusing
+   rollback), guarded POST lifecycle routes. Mid-flight pause/resume/halt are
+   deferred (synchronous single-op executor cannot service them — D32).
 4. **UI** — Goals/Operations navigator, Daily Queue landing lens + Work Detail,
    approval dialog with diff preview, Inspector ⇄ Assistant dock (Chief of
    Staff / Translator / Chat over `src/assistant/adapter.js`), bottom status
@@ -49,8 +50,8 @@ Constraint-critical suites within the portable run:
   transition with full ledger trail, **drift 409 between approval and
   execution**, **approve-class refusal before explicit approval**, **founder
   typed confirmation**, rollback (restore, re-rollback refusal, divergence
-  refusal), halt state rules, transport rejections (415 content type, 405
-  method).
+  refusal), transport rejections (415 content type, 405 method, malformed
+  percent-escape), cross-project intent isolation, escaped-pipe round-trip.
 - `ledger.test.js` (4) — hash chain, paging, tamper detection, no silent
   re-chaining after tampering.
 - `readiness.test.js` (2) — per-op git verdicts over real temp repos.

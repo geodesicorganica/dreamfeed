@@ -13,7 +13,7 @@ const { buildNativeState } = require('./nativeSchema');
 const { getRepoHealth } = require('./repohealth');
 const { computePlan } = require('./commands/plans');
 const { loadPolicy } = require('./commands/policy');
-const { approvePlan, executePlan, requestHalt, rollbackExecution } = require('./commands/executor');
+const { approvePlan, executePlan, rollbackExecution } = require('./commands/executor');
 const cpStore = require('./commands/store');
 const { appendEvent, readLedger, verifyChain } = require('./commands/ledger');
 const { runAssistant, isConfigured: assistantConfigured } = require('./assistant/adapter');
@@ -330,7 +330,6 @@ const MUTATING_ROUTES = Object.freeze({
   '/api/intents/:id/plan': ['POST'],
   '/api/plans/:id/approve': ['POST'],
   '/api/plans/:id/execute': ['POST'],
-  '/api/executions/:id/halt': ['POST'],
   '/api/executions/:id/rollback': ['POST'],
   '/api/work/tasks/transition': ['POST'],
   '/api/assistant/:mode/messages': ['POST'],
@@ -345,8 +344,12 @@ function matchMutating(url) {
     const params = {};
     let ok = true;
     for (let i = 0; i < pSegs.length; i++) {
-      if (pSegs[i].startsWith(':')) params[pSegs[i].slice(1)] = decodeURIComponent(segs[i]);
-      else if (pSegs[i] !== segs[i]) { ok = false; break; }
+      if (pSegs[i].startsWith(':')) {
+        // A malformed percent-escape must not throw out of the request handler
+        // (that would crash the process); treat it as a non-match instead.
+        try { params[pSegs[i].slice(1)] = decodeURIComponent(segs[i]); }
+        catch { ok = false; break; }
+      } else if (pSegs[i] !== segs[i]) { ok = false; break; }
     }
     if (ok) return { pattern, methods, params };
   }
@@ -407,6 +410,14 @@ function handleMutation(req, res, url, body) {
   if (m.pattern === '/api/intents/:id/plan') {
     const intent = cpStore.get('intents', params.id);
     if (!intent) { sendJson(res, 404, { error: 'intent not found', code: 'not-found' }); return; }
+    // Workspace isolation: an intent is bound to the project it was raised
+    // under. If the active project changed since, refuse rather than silently
+    // plan (and, for auto-class, execute) against a different repo.
+    const curTok = currentRoot ? rootToken(currentRoot) : null;
+    if (intent.rootToken !== curTok) {
+      sendJson(res, 409, { error: 'intent was created for a different project — recreate it', code: 'root-drift' });
+      return;
+    }
     const out = computePlan(intent, { repoRoot: currentRoot, policy });
     if (out.error) { sendEngineError(res, out); return; }
     const plan = cpStore.create('plans', 'pln', out.plan);
@@ -435,12 +446,6 @@ function handleMutation(req, res, url, body) {
     const out = executePlan(plan, { actor: 'operator', health: getRepoHealth(currentRoot) }, currentRoot);
     if (out.error) { sendEngineError(res, out); return; }
     sendJson(res, 200, { execution: out.execution });
-    return;
-  }
-  if (m.pattern === '/api/executions/:id/halt') {
-    const out = requestHalt(params.id, { actor: 'operator' });
-    if (out.error) { sendEngineError(res, out); return; }
-    sendJson(res, 200, out);
     return;
   }
   if (m.pattern === '/api/executions/:id/rollback') {

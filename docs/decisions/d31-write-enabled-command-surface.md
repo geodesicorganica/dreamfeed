@@ -35,7 +35,7 @@ Founder authorization (2026-07-03, verbatim directive):
 | GET-only transport | Non-GET methods allowed **only** on the enumerated mutating routes (`/api/intents*`, `/api/plans/*`, `/api/executions/*`, `/api/work/*`, `/api/assistant/*`), each behind the upgraded mutation guard. Every other route/method combination remains 405. |
 | Read-only (no source-repo writes) | Writes to the selected project **only** via the governed lifecycle: root-contained, policy-gated, hash-revalidated, ledgered. |
 | No server-side persistence beyond `project-config.json` | An app-owned, gitignored, versioned control-plane sidecar (`.dreamfeed/` under APP_ROOT) holds intents, plans, approvals, executions, runs, and the ledger. It is never authority over source truth. |
-| No pause/resume/halt/rollback controls | These become the **required** execution controls of the lifecycle (Surgical Overrides + Visual Ledger Confirmation per `command-center-primitives.md`). Traceability T13 flips. |
+| No pause/resume/halt/rollback controls | Post-execution **rollback** (founder-class, divergence-refusing) and the Visual Ledger are implemented. Mid-flight **pause/resume/halt** are deferred — the synchronous single-op executor cannot service them (D32 candidate; needs an async multi-op executor). |
 | No external network calls from the server | Split. **Inbound serving stays loopback-only (hard).** Outbound HTTPS is allowed **only** from the assistant adapter to user-configured model-provider endpoints (the standard IDE-assistant architecture: Cursor / VS Code / Codex class). Keys live in a local gitignored config, never in any repo, never in ledger/traces/logs. |
 
 ### Remaining hard constraints (unchanged)

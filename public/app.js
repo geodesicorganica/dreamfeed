@@ -728,7 +728,11 @@ async function runTransition(taskId, to) {
 }
 
 function pendingApprovals() {
-  return (lifecycleData?.plans || []).filter((p) => p.status === 'planned' && p.class !== 'auto');
+  // 'planned' non-auto plans await approval; 'approved' plans (any class,
+  // including an auto plan whose execution failed) await a retry of execute —
+  // both must stay reachable so a plan is never stranded off the UI.
+  return (lifecycleData?.plans || []).filter((p) =>
+    (p.status === 'planned' && p.class !== 'auto') || p.status === 'approved');
 }
 
 function openApprovalDialog(plan) {
@@ -754,14 +758,26 @@ function closeApprovalDialog() {
 async function approveAndExecute() {
   if (!pendingPlan) return;
   const errEl = $('#apError');
-  const body = pendingPlan.class === 'founder' ? { confirm: $('#apConfirm').value.trim() } : {};
+  const id = encodeURIComponent(pendingPlan.id);
   try {
-    const ar = await postMutation(`/api/plans/${encodeURIComponent(pendingPlan.id)}/approve`, body);
-    const aData = await ar.json().catch(() => ({}));
-    if (!ar.ok) { errEl.textContent = aData.error || `approval refused (${ar.status})`; errEl.hidden = false; return; }
-    const xr = await postMutation(`/api/plans/${encodeURIComponent(pendingPlan.id)}/execute`, {});
+    // Approve is skipped when the plan is already approved (a retry after a
+    // failed execute): re-approving a non-planned plan 409s, which would strand
+    // an approved-but-unexecuted plan with no way to run it. Keep the dialog
+    // open on failure and refresh lifecycle so its true status is reflected.
+    if (pendingPlan.status !== 'approved') {
+      const body = pendingPlan.class === 'founder' ? { confirm: $('#apConfirm').value.trim() } : {};
+      const ar = await postMutation(`/api/plans/${id}/approve`, body);
+      const aData = await ar.json().catch(() => ({}));
+      if (!ar.ok) { errEl.textContent = aData.error || `approval refused (${ar.status})`; errEl.hidden = false; return; }
+      pendingPlan.status = 'approved';
+    }
+    const xr = await postMutation(`/api/plans/${id}/execute`, {});
     const xData = await xr.json().catch(() => ({}));
-    if (!xr.ok) { errEl.textContent = xData.error || `execution refused (${xr.status})`; errEl.hidden = false; return; }
+    if (!xr.ok) {
+      errEl.textContent = xData.error || `execution refused (${xr.status})`; errEl.hidden = false;
+      await load(); // reflect the now-approved plan in Pending approvals so a retry is reachable
+      return;
+    }
     feedback(`Executed ${pendingPlan.opName}: ${xData.execution.status} · ledgered`);
     closeApprovalDialog();
     await load();
@@ -919,7 +935,7 @@ function renderBottomPanel() {
   const feedbackRows = view.feedback.length ? view.feedback.map((entry) => `<div class="trace-row"><span>${esc(monoTime(entry.at))}</span><b>${esc(entry.message)}</b></div>`).join('') : '<p class="odim">No shell interactions recorded this session.</p>';
   const ephemeral = `<div class="bottom-section"><div class="bottom-head"><h2>Ephemeral session feedback</h2><span class="ephemeral-note">NOT SOURCE-BACKED</span></div><p class="ephemeral-note">In-memory UI feedback only. It is not persisted and does not alter source files.</p>${feedbackRows}</div>`;
   // Gate G sections: pending approvals (explicit operator action) and the
-  // Visual Ledger (immutable, hash-chained; halt/rollback are the overrides).
+  // Visual Ledger (immutable, hash-chained; rollback is the post-execution override).
   const pend = pendingApprovals();
   const approvalsSec = `<div class="bottom-section"><div class="bottom-head"><h2>Pending approvals</h2><span>${pend.length ? pill(`${pend.length} waiting`, 'amber') : pill('none', 'grey')}</span></div>${pend.length
     ? pend.map((p) => `<div class="trace-row"><span>${esc(p.id)} · ${esc(p.class)}</span><b>${esc(p.summary || p.opName)} <button type="button" class="command-button task-action" data-review-plan="${esc(p.id)}">Review…</button></b></div>`).join('')

@@ -84,7 +84,7 @@ test('Gate G surfaces: workstream navigator, queue lens, approval dialog, assist
   assert.match(app, /'X-Dreamfeed-Token': actionToken/, 'mutation helper carries the action token header');
   assert.doesNotMatch(app, /fetch\([^)]*token=/, 'no token ever appears in a query string');
   assert.match(app, /\/api\/work\/tasks\/transition/, 'task transitions use the governed sugar route');
-  assert.match(app, /\/api\/plans\/\$\{encodeURIComponent\(pendingPlan\.id\)\}\/approve/, 'approval posts to the lifecycle route');
+  assert.match(app, /\/api\/plans\/\$\{id\}\/approve/, 'approval posts to the lifecycle route');
   assert.match(app, /streamType/, 'queue rows keep their goal/operation stream identity');
 });
 

@@ -8,7 +8,7 @@
 
 const fs = require('fs');
 const path = require('path');
-const { execFile } = require('child_process');
+const { spawn } = require('child_process');
 
 const APP_ROOT = path.resolve(__dirname, '..', '..');
 const CONFIG_FILE = path.join(APP_ROOT, 'assistant-config.json');
@@ -36,12 +36,41 @@ function buildPrompt(mode, message, context) {
 }
 
 function runCli(cfg, prompt) {
+  // The prompt is delivered on STDIN, never as an argv element: this avoids
+  // OS arg-length limits and, critically, keeps prompt text off any command
+  // line. `shell: true` on Windows lets npm .cmd/.bat shims resolve (execFile
+  // with shell:false throws EINVAL for them on Node ≥20); only the operator's
+  // own cfg.command/cfg.args reach the shell, never the prompt.
+  // Error strings expose only the exit/error CODE — never err.message, which
+  // for a spawned process can echo the command line (and any key in cfg.args).
   return new Promise((resolve) => {
-    const args = [...(cfg.args || []), `${prompt.system}\n\n${prompt.user}`];
-    execFile(cfg.command, args, { timeout: TIMEOUT_MS, windowsHide: true, maxBuffer: 4 * 1024 * 1024, shell: false }, (err, stdout) => {
-      if (err && !stdout) { resolve({ error: `assistant CLI failed: ${String(err.message || err).split('\n')[0]}` }); return; }
-      resolve({ reply: String(stdout).trim() || '(empty reply)' });
+    let child;
+    try {
+      child = spawn(cfg.command, [...(cfg.args || [])], {
+        windowsHide: true,
+        shell: process.platform === 'win32',
+      });
+    } catch (err) {
+      resolve({ error: `assistant CLI could not start (${err && err.code ? err.code : 'spawn error'})` });
+      return;
+    }
+    let out = '';
+    let settled = false;
+    const finish = (result) => { if (settled) return; settled = true; clearTimeout(timer); try { child.kill(); } catch { /* already gone */ } resolve(result); };
+    const timer = setTimeout(() => finish({ error: 'assistant CLI timed out' }), TIMEOUT_MS);
+    child.on('error', (err) => finish({ error: `assistant CLI failed to start (${err && err.code ? err.code : 'error'})` }));
+    if (child.stdout) child.stdout.on('data', (d) => {
+      out += d;
+      if (out.length > 4 * 1024 * 1024) finish({ reply: out.slice(0, 4 * 1024 * 1024).trim() });
     });
+    child.on('close', (code) => {
+      if (settled) return;
+      settled = true; clearTimeout(timer);
+      if (code !== 0 && !out.trim()) { resolve({ error: `assistant CLI failed (exit ${code})` }); return; }
+      resolve({ reply: out.trim() || '(empty reply)' });
+    });
+    try { if (child.stdin) { child.stdin.on('error', () => {}); child.stdin.write(`${prompt.system}\n\n${prompt.user}`); child.stdin.end(); } }
+    catch { /* stdin unavailable — rely on close/error */ }
   });
 }
 
