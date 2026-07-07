@@ -11,6 +11,8 @@ const { buildState } = require('./state');
 const { buildQueue, buildSprintMetrics } = require('./queue');
 const { buildNativeState } = require('./nativeSchema');
 const { getRepoHealth } = require('./repohealth');
+const { discover } = require('./discovery');
+const { readManifest } = require('./topology');
 const { computePlan } = require('./commands/plans');
 const { loadPolicy } = require('./commands/policy');
 const { approvePlan, executePlan, rollbackExecution } = require('./commands/executor');
@@ -28,6 +30,26 @@ const projectPicker = require('./projectPicker');
 // transport-level CSRF/rebinding defense only — NOT an authorization model.
 const ACTION_TOKEN = crypto.randomBytes(32).toString('hex');
 const RECENT_CAP = 8;
+// D32 discovery cache: one scan per active root per process, invalidated by
+// project switch (key mismatch) or an explicit ?rescan=1.
+let discoveryCache = { key: null, data: null };
+function clearDiscoveryCacheFor(repoRoot) {
+  if (!repoRoot) { discoveryCache = { key: null, data: null }; return; }
+  const key = rootToken(repoRoot);
+  if (discoveryCache.key === key) discoveryCache = { key: null, data: null };
+}
+function discoveryForRoot(repoRoot) {
+  const data = discover(repoRoot);
+  const manifest = readManifest(repoRoot);
+  const promotedSources = new Set(manifest.nodes
+    .map((n) => n.promoted_from && !n.promoted_from.nys ? n.promoted_from.value : null)
+    .filter(Boolean));
+  if (!promotedSources.size) return data;
+  return {
+    ...data,
+    candidates: data.candidates.filter((c) => !promotedSources.has(c.sourcePath)),
+  };
+}
 
 // Read-only file viewer (item B6 — approval deep-review). Strict allowlist:
 // repo-relative path, no traversal outside the active project root, allowed text
@@ -40,10 +62,13 @@ const NO_GIT_NODE = /(^|\/)(\.git|node_modules)(\/|$)/;
 
 // ---------------------------------------------------------------------------
 // Project switching (governed scope addition). The server holds ONE active
-// project root, defaulting to the Stakeport repo this cockpit ships in. It can
-// be repointed at another LOCAL folder, persisted across restart in a
-// cockpit-local sidecar (never a governance/source file). One active project per
-// server: all tabs share it. See dreamfeed-reconciliation.md.
+// project root — null until the user picks one; the cockpit is project-
+// agnostic and may be pointed at ANY local folder (a governance repo, a plain
+// code repo, or an empty directory — each lens degrades per its contract).
+// The choice persists across restart in a cockpit-local sidecar (never a
+// governance/source file). One active project per server: all tabs share it.
+// Remote (e.g. GitHub) repos must be cloned locally first — outbound egress
+// beyond the assistant adapter is outside the Gate G envelope.
 // ---------------------------------------------------------------------------
 const PROJECT_CONFIG_FILE = path.join(__dirname, '..', 'project-config.json');
 
@@ -278,6 +303,7 @@ const STATIC = {
   '/index.html': { file: 'index.html', type: 'text/html; charset=utf-8' },
   '/styles.css': { file: 'styles.css', type: 'text/css; charset=utf-8' },
   '/app.js': { file: 'app.js', type: 'text/javascript; charset=utf-8' },
+  '/layout.js': { file: 'layout.js', type: 'text/javascript; charset=utf-8' },
   // Canonical Dreamfeed assets and token CSS are deliberately exposed through
   // fixed, read-only routes. The production cockpit does not import the
   // design-system React/CDN prototype or allow arbitrary docs paths.
@@ -445,6 +471,9 @@ function handleMutation(req, res, url, body) {
     if (!plan) { sendJson(res, 404, { error: 'plan not found', code: 'not-found' }); return; }
     const out = executePlan(plan, { actor: 'operator', health: getRepoHealth(currentRoot) }, currentRoot);
     if (out.error) { sendEngineError(res, out); return; }
+    if (plan.opName === 'promote-topology' && out.execution && out.execution.status === 'succeeded') {
+      clearDiscoveryCacheFor(currentRoot);
+    }
     sendJson(res, 200, { execution: out.execution });
     return;
   }
@@ -578,6 +607,20 @@ const server = http.createServer((req, res) => {
     } catch (err) {
       sendJson(res, 500, { fatal: String(err.message || err) });
     }
+    return;
+  }
+  // D32 adoption bridge: deterministic discovery over the active root only
+  // (read-only GET; realpath-contained inside the scanner). Cached per root;
+  // ?rescan=1 forces a fresh walk.
+  if (url === '/api/discovery') {
+    if (!currentRoot) { sendJson(res, 200, { configured: false, candidates: [], rollups: [], warnings: [], errors: [] }); return; }
+    try {
+      const key = rootToken(currentRoot);
+      if (params.get('rescan') !== '1' && discoveryCache.key === key) { sendJson(res, 200, discoveryCache.data); return; }
+      const data = { rootToken: key, ...discoveryForRoot(currentRoot) };
+      discoveryCache = { key, data };
+      sendJson(res, 200, data);
+    } catch (err) { sendJson(res, 500, { fatal: String(err.message || err) }); }
     return;
   }
   // Native-schema projections (D31; read-only GETs). Empty shapes when no

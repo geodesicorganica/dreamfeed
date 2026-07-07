@@ -13,6 +13,7 @@ const CLASSES = new Set(['auto', 'approve', 'founder', 'denied']);
 const DEFAULTS = Object.freeze({
   'task-transition': 'auto',
   'work-file-edit': 'approve',
+  'promote-topology': 'approve',
   'git-add': 'approve',
   'git-commit': 'approve',
   'git-branch': 'approve',

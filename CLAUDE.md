@@ -30,7 +30,7 @@ Write mode (relaxed by D31, scoped):
   `denied` per `os/policy.md`).
 - Control-plane records live in the gitignored `.dreamfeed/` sidecar, never as
   hidden truth in source repos.
-- Free-form terminal and deploy triggers are **not** in scope (D32 candidates);
+- Free-form terminal and deploy triggers are **not** in scope (D33+ candidates);
   git write actions are limited to the safe named allowlist
   (add/commit/branch/switch `approve`-class; push `founder`-class).
 

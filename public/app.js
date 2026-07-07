@@ -5,6 +5,7 @@
 let state = null;
 let repoHealth = null;
 let project = null;
+let discovery = null; // D32 adoption bridge: /api/discovery result (read-only)
 // In-memory action token (D28 local guard). Read from the /api/project
 // descriptor and sent as the X-Dreamfeed-Token header on state-changing calls.
 // Held in memory only — never written to any browser-side persistent store.
@@ -25,6 +26,10 @@ const assistant = { mode: 'chief-of-staff', busy: false, transcripts: { 'chief-o
 const hasDom = typeof window !== 'undefined' && typeof document !== 'undefined';
 const view = {
   tab: 'daily', filterText: '', filterStatus: '', collapsed: {}, graphSel: null,
+  // D32: strategy override is session view-state only (never persisted, never
+  // written to any repo); loopSel is the selected flow loop, if any;
+  // showDiscovered toggles the candidate tier on hybrid maps.
+  graphStrategy: 'auto', loopSel: null, showDiscovered: true,
   selectedObjectId: null, inspectorTab: 'overview', evidence: null, evidenceMode: 'rendered',
   rightMode: 'inspector', // 'inspector' | 'assistant' — the region-4 mode toggle
   workScope: null,        // { streamType, containerId, group? } from the navigator
@@ -213,6 +218,11 @@ function sourceInfo(f) {
 function sourceLink(path, label) {
   return path ? `<span class="srclink" data-file="${esc(path)}">${esc(label || path)}</span>` : '<span class="nys">source unavailable</span>';
 }
+function slugId(text) { return String(text || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, ''); }
+function candidateManifestId(candidate) {
+  const source = candidate && (candidate.sourcePath || candidate.id || candidate.name);
+  return slugId(`${candidate && candidate.kind ? candidate.kind : 'candidate'}-${source || 'candidate'}`) || 'candidate';
+}
 function srcLine(f, extras = []) {
   const source = sourceInfo(f);
   const entries = [];
@@ -340,7 +350,7 @@ function selectObject(id, options = {}) {
   view.selectedObjectId = id;
   view.inspectorOpen = true;
   view.inspectorTab = options.tab || 'overview';
-  if (options.graphKey) view.graphSel = options.graphKey;
+  if (options.graphKey) { view.graphSel = options.graphKey; view.loopSel = null; }
   feedback(`Selected ${objectRegistry.get(id).type}: ${objectRegistry.get(id).title}`);
   render();
 }
@@ -498,14 +508,70 @@ function graphNodes() {
   });
   return nodes;
 }
+function registerHumanRoot(spec) {
+  // The human root is a product-level runtime node (D32), never a repo object.
+  // It gets a UI record like synthetic endpoints so the shared inspector works.
+  const id = `topology:${DreamfeedLayout.HUMAN_ROOT_ID}`;
+  record(id, 'Human operator', 'You', null, {
+    state: 'product-invariant', owner: 'you', timestamp: 'runtime', provenance: 'Runtime',
+    relationships: spec.anchorNodeId ? [`operates → ${spec.anchorNodeId}`] : [],
+    nextAction: spec.anchorNodeId ? 'Walk the system from your anchor node' : 'Adopt a governance layout to wire a system under you',
+    overview: [['Node', DreamfeedLayout.HUMAN_ROOT_ID], ['Root rule', spec.rootRule], ['Root provenance', spec.rootProvenance], ['Anchor', spec.anchorNodeId || '—'], ['Anchor rule', spec.anchorRule || '—']],
+  });
+}
+function registerDiscoveredNode(item) {
+  const id = `topology:${item.key}`;
+  if (objectRegistry.has(id)) return;
+  const c = item.meta || {};
+  record(id, item.kind === 'unmapped' ? 'Unmapped rollup' : 'Discovered candidate', item.label,
+    item.src ? { path: item.src, locator: 'found by deterministic discovery scan' } : null, {
+      state: item.tier, owner: 'discovery scanner', timestamp: 'scan', provenance: item.tier === 'unmapped' ? 'Unmapped' : 'Discovered',
+      relationships: ['Contained by discovered project'],
+      nextAction: item.tier === 'discovered' ? 'Promote to os/topology.md through the governed lifecycle (approval required)' : 'Promote individual files to make this area part of the topology',
+      overview: [['Kind', item.kind], ['Confidence', c.confidence || '—'], ['Matched by', (c.matchedBy || []).join(', ') || '—'], ['Source path', item.src || '—'], ['Provenance', item.tier]],
+    });
+}
+function discoveredGraph() {
+  // D32 hybrid tier: candidates and unmapped rollups from /api/discovery,
+  // grouped under one discovered-project node via owns edges. Empty when the
+  // toggle is off or discovery has nothing.
+  if (!view.showDiscovered || !discovery || discovery.fatal) return { nodes: [], edges: [] };
+  const items = [];
+  (discovery.candidates || []).forEach((c) => items.push({ key: c.id, kind: c.kind, label: c.name, ref: null, tier: 'discovered', src: c.sourcePath, meta: c }));
+  (discovery.rollups || []).forEach((r) => items.push({ key: r.id, kind: 'unmapped', label: r.name, ref: null, tier: 'unmapped', src: r.sourcePath, meta: r }));
+  if (!items.length) return { nodes: [], edges: [] };
+  const projectNode = { key: 'discovered:project', kind: 'project', label: project && project.name ? `${project.name} (discovered)` : 'Discovered project', ref: null, tier: 'discovered', src: null, meta: null };
+  items.forEach(registerDiscoveredNode);
+  registerDiscoveredNode(projectNode);
+  return {
+    nodes: [projectNode].concat(items),
+    edges: items.map((i) => ({ from: projectNode.key, to: i.key, type: 'owns' })),
+  };
+}
 function graphLayout() {
-  const nodes = graphNodes(); const columns = [[], [], []];
-  nodes.forEach((n) => columns[n.kind === 'agent' || n.kind === 'planned-agent' ? 0 : n.kind === 'skill' || n.kind === 'planned-skill' ? 1 : 2].push(n));
-  const positions = {}; const top = 48; const gap = 42;
-  columns[0].forEach((n, i) => { positions[n.key] = { x: 250, y: top + i * gap, n }; });
-  columns[1].forEach((n, i) => { positions[n.key] = { x: 620, y: top + i * gap, n }; });
-  columns[2].forEach((n, i) => { positions[n.key] = { x: 970, y: top + i * gap, n }; });
-  return { positions, nodes, height: Math.max(420, top + Math.max(...columns.map((c) => c.length)) * gap + 32) };
+  // Kind normalization and synthetic-endpoint registration stay here; all
+  // geometry is delegated to the D32 orchestrator (public/layout.js).
+  const nodes = graphNodes();
+  const declared = [];
+  state.topology.edges.forEach((e) => {
+    if (e.from.nys || e.to.nys || e.type.nys) return;
+    declared.push({ from: e.from.value, to: e.to.value, type: e.type.value });
+  });
+  const disc = discoveredGraph();
+  const formalEmpty = nodes.length === 0;
+  const allNodes = nodes.concat(disc.nodes);
+  const spec = DreamfeedLayout.orchestrate(
+    { nodes: allNodes.map((n) => ({ id: n.key, kind: n.kind, name: n.label })), edges: declared.concat(disc.edges) },
+    // No formal topology + discovered content: the discovered project IS the
+    // anchor (adoption bridge). With formal topology the cascade decides.
+    { strategy: view.graphStrategy, anchorId: formalEmpty && disc.nodes.length ? 'discovered:project' : undefined });
+  registerHumanRoot(spec);
+  const human = { key: DreamfeedLayout.HUMAN_ROOT_ID, kind: 'human', label: 'You', ref: null };
+  const metaByKey = new Map(allNodes.map((n) => [n.key, n]));
+  metaByKey.set(human.key, human);
+  const positions = {};
+  spec.nodes.forEach((p) => { const meta = metaByKey.get(p.id); if (meta) positions[p.id] = { x: p.x, y: p.y, n: meta }; });
+  return { positions, nodes: [human].concat(allNodes), height: spec.constraints.canvasHeight, spec, discEdges: disc.edges };
 }
 function graphEdges(positions) {
   // Preserve every source relationship, including duplicate logical paths with
@@ -527,23 +593,61 @@ function graphEdges(positions) {
   return edges;
 }
 function edgeClass(tier) { return tier === 'Canonical' ? 'edge-canon' : tier === 'Derived' ? 'edge-deriv' : 'edge-nys'; }
-function graphNodeSvg(meta, pos) {
+function graphNodeSvg(meta, pos, canvasWidth) {
   const selected = view.graphSel === meta.key ? 'sel' : ''; const id = `topology:${meta.key}`;
-  const left = meta.kind === 'agent' || meta.kind === 'planned-agent'; const planned = meta.kind.includes('planned');
-  const labelX = left ? 14 : pos.x + 20; const anchor = left ? 'start' : 'start'; const label = esc(meta.label.length > 31 ? `${meta.label.slice(0, 30)}…` : meta.label);
-  if (left) return `<g class="gnode ${selected}" data-graph-node="${esc(meta.key)}" data-object-id="${esc(id)}"><circle cx="${pos.x}" cy="${pos.y}" r="14" fill="${planned ? '#2f2740' : '#28393a'}" stroke="${planned ? '#c2a9e8' : '#7ecfd1'}" stroke-width="2"${planned ? ' stroke-dasharray="4 3"' : ''}></circle><text x="${labelX}" y="${pos.y + 4}" text-anchor="${anchor}">${label}</text></g>`;
-  if (meta.kind === 'skill' || meta.kind === 'planned-skill') return `<g class="gnode ${selected}" data-graph-node="${esc(meta.key)}" data-object-id="${esc(id)}"><rect x="${pos.x - 13}" y="${pos.y - 12}" width="26" height="24" fill="${planned ? '#2f2740' : '#2c3a31'}" stroke="${planned ? '#c2a9e8' : '#6fbf8a'}" stroke-width="2"${planned ? ' stroke-dasharray="4 3"' : ''}></rect><text x="${labelX}" y="${pos.y + 4}">${label}</text></g>`;
-  return `<g class="gnode ${selected}" data-graph-node="${esc(meta.key)}" data-object-id="${esc(id)}"><rect x="${pos.x - 7}" y="${pos.y - 7}" width="14" height="14" transform="rotate(45 ${pos.x} ${pos.y})" fill="#272c2e" stroke="#aeb4af" stroke-width="1.5"></rect><text x="${labelX}" y="${pos.y + 4}" class="art-label">${label}</text></g>`;
+  const planned = meta.kind.includes('planned');
+  // Labels sit beside their node in every strategy (positions are no longer
+  // columnar); right-half nodes label leftward so radial rings stay readable.
+  const leftHalf = pos.x > (canvasWidth || 1220) * 0.55;
+  const labelX = leftHalf ? pos.x - 20 : pos.x + 20; const anchor = leftHalf ? 'end' : 'start';
+  const label = esc(meta.label.length > 31 ? `${meta.label.slice(0, 30)}…` : meta.label);
+  const g = (inner, extra) => `<g class="gnode${extra ? ` ${extra}` : ''} ${selected}" data-graph-node="${esc(meta.key)}" data-object-id="${esc(id)}">${inner}</g>`;
+  if (meta.kind === 'human') {
+    return g(`<circle cx="${pos.x}" cy="${pos.y}" r="19" fill="none" stroke="#e6c079" stroke-width="1.25" stroke-dasharray="2 3"></circle><circle cx="${pos.x}" cy="${pos.y}" r="12" fill="#3a3222" stroke="#e6c079" stroke-width="2"></circle><text x="${labelX + (leftHalf ? -6 : 6)}" y="${pos.y + 4}" text-anchor="${anchor}">${label}</text>`, 'human');
+  }
+  if (meta.tier === 'discovered' || meta.tier === 'unmapped') {
+    // D32 provenance tiers: discovered = dashed blue, unmapped = dashed grey.
+    const tint = meta.tier === 'unmapped' ? '#8a8f8a' : '#8fb4d8';
+    const text = `<text x="${labelX}" y="${pos.y + 4}" text-anchor="${anchor}" class="art-label">${label}</text>`;
+    if (meta.kind === 'project') return g(`<rect x="${pos.x - 16}" y="${pos.y - 13}" width="32" height="26" rx="6" fill="#243038" stroke="${tint}" stroke-width="2" stroke-dasharray="5 3"></rect>${text}`, 'discovered');
+    if (meta.kind === 'agent') return g(`<circle cx="${pos.x}" cy="${pos.y}" r="12" fill="#243038" stroke="${tint}" stroke-width="1.75" stroke-dasharray="3 3"></circle>${text}`, 'discovered');
+    if (meta.kind === 'skill' || meta.kind === 'workflow') return g(`<rect x="${pos.x - 11}" y="${pos.y - 10}" width="22" height="20" fill="#243038" stroke="${tint}" stroke-width="1.75" stroke-dasharray="3 3"></rect>${text}`, 'discovered');
+    return g(`<rect x="${pos.x - 7}" y="${pos.y - 7}" width="14" height="14" transform="rotate(45 ${pos.x} ${pos.y})" fill="#243038" stroke="${tint}" stroke-width="1.5" stroke-dasharray="3 3"></rect>${text}`, 'discovered');
+  }
+  if (meta.kind === 'agent' || meta.kind === 'planned-agent') {
+    return g(`<circle cx="${pos.x}" cy="${pos.y}" r="14" fill="${planned ? '#2f2740' : '#28393a'}" stroke="${planned ? '#c2a9e8' : '#7ecfd1'}" stroke-width="2"${planned ? ' stroke-dasharray="4 3"' : ''}></circle><text x="${labelX}" y="${pos.y + 4}" text-anchor="${anchor}">${label}</text>`);
+  }
+  if (meta.kind === 'skill' || meta.kind === 'planned-skill') {
+    return g(`<rect x="${pos.x - 13}" y="${pos.y - 12}" width="26" height="24" fill="${planned ? '#2f2740' : '#2c3a31'}" stroke="${planned ? '#c2a9e8' : '#6fbf8a'}" stroke-width="2"${planned ? ' stroke-dasharray="4 3"' : ''}></rect><text x="${labelX}" y="${pos.y + 4}" text-anchor="${anchor}">${label}</text>`);
+  }
+  return g(`<rect x="${pos.x - 7}" y="${pos.y - 7}" width="14" height="14" transform="rotate(45 ${pos.x} ${pos.y})" fill="#272c2e" stroke="#aeb4af" stroke-width="1.5"></rect><text x="${labelX}" y="${pos.y + 4}" text-anchor="${anchor}" class="art-label">${label}</text>`);
 }
 function renderTopology() {
-  const { positions, nodes, height } = graphLayout(); const edges = graphEdges(positions); const planned = nodes.filter((n) => n.kind.includes('planned')); const artifacts = nodes.filter((n) => n.kind === 'artifact');
-  const edgeSvg = edges.map((e) => { const a = positions[e.from]; const b = positions[e.to]; const hot = view.graphSel && (view.graphSel === e.from || view.graphSel === e.to); const dim = view.graphSel && !hot; const offset = (e.duplicateIndex - (e.duplicateTotal - 1) / 2) * 9; return `<path class="gedge ${edgeClass(e.tier)}${hot ? ' hot' : ''}${dim ? ' dim' : ''}" d="M ${a.x} ${a.y} C ${(a.x + b.x) / 2} ${a.y + offset}, ${(a.x + b.x) / 2} ${b.y + offset}, ${b.x} ${b.y}"></path>`; }).join('');
-  const legend = `<div class="graph-legend"><span>● agent</span><span>▭ skill</span><span>⬚ planned / no definition file</span><span>◇ artifact</span><span><i class="lg-line edge-canon"></i> Canonical relationship</span><span>${nodes.length} endpoints · ${edges.length}/${state.topology.edges.length} edges drawn</span></div>`;
-  const graph = `<div class="graph-wrap"><div class="graph-canvas"><svg width="1220" height="${height}" viewBox="0 0 1220 ${height}" role="img" aria-label="Complete source-backed topology graph">${edgeSvg}${Object.values(positions).map((p) => graphNodeSvg(p.n, p)).join('')}</svg></div><div class="graph-detail"><h3>${view.graphSel ? esc(objectRegistry.get(`topology:${view.graphSel}`)?.title || baseName(view.graphSel)) : 'Graph selection'}</h3><p class="odim">${view.graphSel ? 'The selected node and all source evidence are in the shared inspector.' : 'Select any node. Edges highlight, then the same inspector used by cards and tables opens.'}</p><div class="detail-sec">Coverage</div><ul class="detail-list"><li>${nodes.length} rendered endpoints</li><li>${edges.length} rendered edges</li><li>${planned.length} declared but unbuilt</li><li>${artifacts.length} input/output artifacts</li></ul></div></div>`;
-  const nodeRows = nodes.map((n) => { const id = `topology:${n.key}`; const source = n.ref ? sourceInfo(n.ref.source_evidence)?.path : isFileRef(n.key) ? n.key : null; return `<tr data-object-id="${esc(id)}" class="${view.selectedObjectId === id ? 'selected' : ''}"><td>${esc(n.label)}</td><td>${esc(n.kind)}</td><td>${source ? sourceLink(source, 'source') : '—'}</td></tr>`; }).join('');
+  const { positions, nodes, height, spec, discEdges } = graphLayout(); const edges = graphEdges(positions); const planned = nodes.filter((n) => n.kind.includes('planned')); const artifacts = nodes.filter((n) => n.kind === 'artifact');
+  const discovered = nodes.filter((n) => n.tier === 'discovered' && n.kind !== 'project');
+  const unmapped = nodes.filter((n) => n.tier === 'unmapped');
+  const loop = view.loopSel ? spec.loops.find((l) => l.id === view.loopSel) : null;
+  const loopPairs = new Set();
+  if (loop) for (let i = 0; i < loop.nodes.length - 1; i++) { loopPairs.add(`${loop.nodes[i]}|${loop.nodes[i + 1]}`); loopPairs.add(`${loop.nodes[i + 1]}|${loop.nodes[i]}`); }
+  const edgeSvg = edges.map((e) => { const a = positions[e.from]; const b = positions[e.to]; const hot = (loop && loopPairs.has(`${e.from}|${e.to}`)) || (view.graphSel && (view.graphSel === e.from || view.graphSel === e.to)); const dim = (view.graphSel || loop) && !hot; const offset = (e.duplicateIndex - (e.duplicateTotal - 1) / 2) * 9; return `<path class="gedge ${edgeClass(e.tier)}${hot ? ' hot' : ''}${dim ? ' dim' : ''}" d="M ${a.x} ${a.y} C ${(a.x + b.x) / 2} ${a.y + offset}, ${(a.x + b.x) / 2} ${b.y + offset}, ${b.x} ${b.y}"></path>`; }).join('');
+  // The runtime human->anchor edge is product-level, not a source relationship:
+  // drawn separately, styled distinctly, excluded from the edges-drawn tally.
+  const humanPos = positions[DreamfeedLayout.HUMAN_ROOT_ID]; const anchorPos = spec.anchorNodeId ? positions[spec.anchorNodeId] : null;
+  const runtimeEdge = humanPos && anchorPos ? `<path class="gedge edge-runtime${(view.graphSel || loop) ? ' dim' : ''}" d="M ${humanPos.x} ${humanPos.y} C ${(humanPos.x + anchorPos.x) / 2} ${humanPos.y}, ${(humanPos.x + anchorPos.x) / 2} ${anchorPos.y}, ${anchorPos.x} ${anchorPos.y}"></path>` : '';
+  const strategies = [['auto', 'Auto'], ['layered', 'Layered'], ['radial', 'Radial'], ['clustered-loops', 'Clustered']];
+  const discCount = discovery && discovery.candidates ? discovery.candidates.length : 0;
+  const toolbar = `<div class="graph-toolbar"><span class="graph-why">Layout: <strong>${esc(spec.strategy)}</strong>${spec.strategyRequested ? ' (manual)' : ''} · ${esc(spec.why)} · root: You · anchor: ${spec.anchorNodeId ? `${esc(String(spec.anchorNodeId))} via ${esc(String(spec.anchorRule))}` : '—'}</span><span class="strategy-switch" role="group" aria-label="Layout strategy override (session only)">${strategies.map(([v, l]) => `<button class="strategy-btn${(view.graphStrategy || 'auto') === v ? ' active' : ''}" data-strategy="${v}">${l}</button>`).join('')}</span><span class="strategy-switch"><button class="strategy-btn${view.showDiscovered ? ' active' : ''}" data-toggle-discovered aria-pressed="${String(view.showDiscovered)}">Candidates: ${view.showDiscovered ? 'shown' : 'hidden'}${discCount ? ` (${discCount})` : ''}</button><button class="strategy-btn" data-rescan>Rescan</button></span>${spec.warnings.length ? `<span class="graph-warn">${esc(spec.warnings.join(' '))}</span>` : ''}</div>`;
+  const discEdgeSvg = (discEdges || []).map((e) => { const a = positions[e.from]; const b = positions[e.to]; if (!a || !b) return ''; return `<path class="gedge edge-discovered${(view.graphSel || loop) ? ' dim' : ''}" d="M ${a.x} ${a.y} C ${(a.x + b.x) / 2} ${a.y}, ${(a.x + b.x) / 2} ${b.y}, ${b.x} ${b.y}"></path>`; }).join('');
+  const legend = `<div class="graph-legend"><span>◉ you</span><span>● agent</span><span>▭ skill</span><span>⬚ planned / no definition file</span><span>◇ artifact</span><span>◌ discovered candidate</span><span>▩ unmapped rollup</span><span><i class="lg-line edge-canon"></i> Canonical relationship</span><span>${nodes.length} endpoints · ${edges.length}/${state.topology.edges.length} edges drawn</span></div>`;
+  const shortId = (id) => { const s = isFileRef(id) ? baseName(id) : String(id); return s.length > 18 ? `${s.slice(0, 17)}…` : s; };
+  const loopList = spec.loops.length
+    ? spec.loops.map((l) => `<button class="loop-item${view.loopSel === l.id ? ' sel' : ''}" data-loop="${esc(l.id)}"><span class="loop-tag">${esc(l.weight)}</span>${esc(l.nodes.map(shortId).join(' → '))}</button>`).join('')
+    : '<p class="odim">No flow loops detected. Loops appear when produced artifacts feed back upstream.</p>';
+  const graph = `<div class="graph-wrap"><div class="graph-canvas"><svg width="${spec.constraints.canvasWidth}" height="${height}" viewBox="0 0 ${spec.constraints.canvasWidth} ${height}" role="img" aria-label="Human-rooted source-backed topology graph">${discEdgeSvg}${runtimeEdge}${edgeSvg}${Object.values(positions).map((p) => graphNodeSvg(p.n, p, spec.constraints.canvasWidth)).join('')}</svg></div><div class="graph-detail"><h3>${view.graphSel ? esc(objectRegistry.get(`topology:${view.graphSel}`)?.title || baseName(view.graphSel)) : 'Graph selection'}</h3><p class="odim">${view.graphSel ? 'The selected node and all source evidence are in the shared inspector.' : 'Select any node. Edges highlight, then the same inspector used by cards and tables opens.'}</p><div class="detail-sec">Loops</div>${loopList}<div class="detail-sec">Coverage</div><ul class="detail-list"><li>${nodes.length} rendered endpoints</li><li>${edges.length} rendered edges</li><li>${planned.length} declared but unbuilt</li><li>${artifacts.length} input/output artifacts</li></ul></div></div>`;
+  const nodeRows = nodes.map((n) => { const id = `topology:${n.key}`; const source = n.ref ? sourceInfo(n.ref.source_evidence)?.path : n.src ? n.src : isFileRef(n.key) ? n.key : null; return `<tr data-object-id="${esc(id)}" class="${view.selectedObjectId === id ? 'selected' : ''}"><td>${esc(n.label)}</td><td>${esc(n.kind)}</td><td>${source ? sourceLink(source, 'source') : '—'}</td></tr>`; }).join('');
   const edgeRows = state.topology.edges.map((e, index) => { const id = `topology-edge:${index}`; const source = sourceInfo(e.source_evidence)?.path; if (!objectRegistry.has(id)) record(id, 'Topology relationship', `${fieldValue(e.from)} → ${fieldValue(e.to)}`, source ? { path: source, locator: 'definition frontmatter' } : null, { state: fieldValue(e.type), owner: fieldValue(e.from), timestamp: 'source-backed', provenance: fieldValue(e.tier), relationships: [fieldValue(e.to)], nextAction: 'Open edge source', overview: [['From', fieldValue(e.from)], ['To', fieldValue(e.to)], ['Type', fieldValue(e.type)]] }); return `<tr data-object-id="${esc(id)}" class="${view.selectedObjectId === id ? 'selected' : ''}"><td>${esc(fieldValue(e.from))}</td><td>${esc(fieldValue(e.type))}</td><td>${esc(fieldValue(e.to))}</td><td>${prov(e.tier)}</td><td>${source ? sourceLink(source, 'source') : '—'}</td></tr>`; }).join('');
   const plannedRows = planned.map((n) => `<tr data-object-id="topology:${esc(n.key)}"><td>${esc(n.label)}</td><td>${esc(n.kind)}</td><td>Referenced in definition frontmatter; no AGENT.md/SKILL.md found.</td></tr>`).join('');
-  return `<div class="banner">Topology lens — graph, node list, edge list, and repository inventory project the same Gate C source-backed topology. Graph labels reserve a fixed canvas; file endpoints and all edges remain visible rather than being silently omitted.</div>${legend}${graph}${planned.length ? group('topology-planned', 'Declared but unbuilt', `<table class="grid"><tr><th>id</th><th>kind</th><th>state</th></tr>${plannedRows}</table>`, planned.length) : ''}${group('topology-nodes', 'Node list — every graph node', `<table class="grid"><tr><th>id</th><th>kind</th><th>source</th></tr>${nodeRows}</table>`, nodes.length)}${group('topology-edges', 'Edge list — every source relationship', `<table class="grid"><tr><th>from</th><th>type</th><th>to</th><th>provenance</th><th>evidence</th></tr>${edgeRows}</table>`, state.topology.edges.length)}${group('topology-inventory', 'Repository inventory — definition files', `<table class="grid"><tr><th>path</th><th>kind</th><th>frontmatter</th></tr>${state.topology.repoInventory.map((r) => `<tr data-object-id="source:${esc(r.path.value)}"><td>${esc(r.path.value)}</td><td>${esc(r.kind.value)}</td><td>${esc(String(r.hasDefinitionFrontmatter.value))}</td></tr>`).join('')}</table>`, state.topology.repoInventory.length)}`;
+  return `<div class="banner">Topology lens — human-rooted map (D32): you are the root, the anchor is the first source-backed node under you. Graph, node list, edge list, and repository inventory project the same Gate C source-backed topology; file endpoints and all edges remain visible rather than being silently omitted.</div>${toolbar}${legend}${graph}${discovered.length || unmapped.length ? group('topology-discovered', 'Discovered — adoption frontier (candidates await promotion)', `<table class="grid"><tr><th>name</th><th>kind</th><th>confidence</th><th>matched by</th><th>source</th><th></th></tr>${discovered.map((n) => `<tr data-object-id="topology:${esc(n.key)}" class="${view.selectedObjectId === `topology:${n.key}` ? 'selected' : ''}"><td>${esc(n.label)}</td><td>${esc(n.kind)}</td><td>${esc((n.meta && n.meta.confidence) || '—')}</td><td>${esc(((n.meta && n.meta.matchedBy) || []).join(', ') || '—')}</td><td>${n.src ? sourceLink(n.src, 'source') : '—'}</td><td><button class="strategy-btn" data-promote="${esc(n.key)}">Promote…</button></td></tr>`).join('')}${unmapped.map((n) => `<tr data-object-id="topology:${esc(n.key)}"><td>${esc(n.label)}</td><td>unmapped</td><td>—</td><td>—</td><td>—</td></tr>`).join('')}</table>`, discovered.length + unmapped.length) : ''}${planned.length ? group('topology-planned', 'Declared but unbuilt', `<table class="grid"><tr><th>id</th><th>kind</th><th>state</th></tr>${plannedRows}</table>`, planned.length) : ''}${group('topology-nodes', 'Node list — every graph node', `<table class="grid"><tr><th>id</th><th>kind</th><th>source</th></tr>${nodeRows}</table>`, nodes.length)}${group('topology-edges', 'Edge list — every source relationship', `<table class="grid"><tr><th>from</th><th>type</th><th>to</th><th>provenance</th><th>evidence</th></tr>${edgeRows}</table>`, state.topology.edges.length)}${group('topology-inventory', 'Repository inventory — definition files', `<table class="grid"><tr><th>path</th><th>kind</th><th>frontmatter</th></tr>${state.topology.repoInventory.map((r) => `<tr data-object-id="source:${esc(r.path.value)}"><td>${esc(r.path.value)}</td><td>${esc(r.kind.value)}</td><td>${esc(String(r.hasDefinitionFrontmatter.value))}</td></tr>`).join('')}</table>`, state.topology.repoInventory.length)}`;
 }
 
 function renderRoadmap() { return `<div class="banner">Document lens — Roadmap Spine keeps product phases distinct from crawl / walk / run build maturity.</div>${group('roadmap', 'Roadmap phases', `<div class="cards">${state.roadmap.map((r) => { const id = `roadmap:${fieldValue(r.phase_label)}`; return `<article class="card click" data-object-id="${esc(id)}"><div class="card-head"><div class="card-title">${fv(r.phase_label)} ${prov(r.phase_label)}</div>${pill(fieldValue(r.target_timing), 'amber')}</div>${row('scope', r.scope_summary)}${srcLine(r.source_evidence)}</article>`; }).join('')}</div>`, state.roadmap.length)}`; }
@@ -715,6 +819,33 @@ function renderWorkNav() {
 }
 
 // --- governed transitions + approval dialog ----------------------------------
+
+// D32 promotion: a discovered candidate rides the full governed lifecycle —
+// intent → plan (approve-class) → the SAME approval dialog as every other
+// write → execute → ledger. The sidecar holds the pending intent; durable
+// truth lands only in os/topology.md after approval.
+async function runPromotion(candidateId) {
+  const c = discovery && discovery.candidates ? discovery.candidates.find((x) => x.id === candidateId) : null;
+  if (!c) { feedback('Candidate not found — rescan and retry'); return; }
+  const idSlug = candidateManifestId(c);
+  try {
+    const res = await postMutation('/api/intents', { kind: 'promote-topology', payload: { nodes: [{ id: idSlug, kind: c.kind, name: c.name, promotedFrom: c.sourcePath, matchedBy: c.matchedBy }], edges: [] } });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) { feedback(`Promotion intent refused (${res.status}): ${data.error || 'unknown error'}`); return; }
+    const planRes = await postMutation(`/api/intents/${encodeURIComponent(data.intent.id)}/plan`, {});
+    const planData = await planRes.json().catch(() => ({}));
+    if (!planRes.ok) { feedback(`Promotion plan refused (${planRes.status}): ${planData.error || 'unknown error'}`); return; }
+    if (planData.approval) {
+      // auto-class by project policy: approved by policy, execute now.
+      const execRes = await postMutation(`/api/plans/${encodeURIComponent(planData.plan.id)}/execute`, {});
+      const execData = await execRes.json().catch(() => ({}));
+      feedback(execRes.ok ? `Promoted ${c.name} → os/topology.md · ledgered` : `Promotion execute refused: ${execData.error || execRes.status}`);
+      await load();
+      return;
+    }
+    openApprovalDialog(planData.plan);
+  } catch (err) { feedback(`Promotion failed: ${String(err)}`); }
+}
 
 async function runTransition(taskId, to) {
   try {
@@ -1015,6 +1146,13 @@ function wireDynamic() {
   main.querySelectorAll('[data-file]').forEach((el) => el.addEventListener('click', (event) => { event.stopPropagation(); openEvidence(el.dataset.file); }));
   main.querySelectorAll('[data-command]').forEach((el) => el.addEventListener('click', (event) => { event.stopPropagation(); feedback(`Command is informational only: ${el.dataset.command}`); renderBottomPanel(); }));
   main.querySelectorAll('[data-gotab]').forEach((el) => el.addEventListener('click', (event) => { event.stopPropagation(); goTab(el.dataset.gotab); }));
+  // D32: strategy override is presentation-only session state; loop selection
+  // reuses the hot/dim edge grammar and is mutually exclusive with node selection.
+  main.querySelectorAll('[data-strategy]').forEach((el) => el.addEventListener('click', (event) => { event.stopPropagation(); view.graphStrategy = el.dataset.strategy; view.loopSel = null; feedback(`Layout strategy: ${el.dataset.strategy} (session only, presentation-only)`); render(); }));
+  main.querySelectorAll('[data-loop]').forEach((el) => el.addEventListener('click', (event) => { event.stopPropagation(); view.loopSel = view.loopSel === el.dataset.loop ? null : el.dataset.loop; view.graphSel = null; feedback(view.loopSel ? `Loop highlighted: ${view.loopSel}` : 'Loop selection cleared'); render(); }));
+  main.querySelectorAll('[data-toggle-discovered]').forEach((el) => el.addEventListener('click', (event) => { event.stopPropagation(); view.showDiscovered = !view.showDiscovered; feedback(`Discovered candidates ${view.showDiscovered ? 'shown' : 'hidden'}`); render(); }));
+  main.querySelectorAll('[data-rescan]').forEach((el) => el.addEventListener('click', async (event) => { event.stopPropagation(); feedback('Rescanning project for candidates…'); try { discovery = await (await fetch('/api/discovery?rescan=1', { cache: 'no-store' })).json(); } catch (err) { discovery = null; } feedback('Discovery rescan complete'); render(); }));
+  main.querySelectorAll('[data-promote]').forEach((el) => el.addEventListener('click', (event) => { event.stopPropagation(); el.disabled = true; runPromotion(el.dataset.promote); }));
   // Governed task transitions (D31): every click is an intent through the
   // lifecycle; auto-class runs immediately (ledgered), others open approval.
   main.querySelectorAll('[data-transition]').forEach((el) => el.addEventListener('click', (event) => {
@@ -1023,7 +1161,7 @@ function wireDynamic() {
     runTransition(el.dataset.transition, el.dataset.to);
   }));
 }
-function goTab(tab) { view.tab = tab; view.filterStatus = ''; view.graphSel = null; view.sidebarOpen = false; feedback(`Switched to ${tabLens(tab)} lens: ${tab}`); render(); }
+function goTab(tab) { view.tab = tab; view.filterStatus = ''; view.graphSel = null; view.loopSel = null; view.sidebarOpen = false; feedback(`Switched to ${tabLens(tab)} lens: ${tab}`); render(); }
 function goLens(lens) { const spec = LENS_REGISTRY[lens]; if (!spec) return; view.tab = spec.defaultTab; view.filterStatus = ''; view.sidebarOpen = false; if (spec.inspectorMode) { view.inspectorOpen = true; view.inspectorTab = spec.inspectorMode; } feedback(`Lens selected: ${lens}`); render(); }
 
 async function load(attempt = 0) {
@@ -1031,6 +1169,7 @@ async function load(attempt = 0) {
   try {
     state = await (await fetch('/api/state', { cache: 'no-store' })).json();
     try { repoHealth = await (await fetch('/api/repo-health', { cache: 'no-store' })).json(); } catch (err) { repoHealth = { fatal: String(err) }; }
+    try { discovery = await (await fetch('/api/discovery', { cache: 'no-store' })).json(); } catch (err) { discovery = null; }
     try {
       project = await (await fetch('/api/project', { cache: 'no-store' })).json();
       if (project && project.actionToken) actionToken = project.actionToken;

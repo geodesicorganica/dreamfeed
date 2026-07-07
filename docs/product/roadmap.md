@@ -47,7 +47,8 @@ representing Brief B gate 5b as accepted or the product as externally validated.
 > Goals/Operations schema, daily execution queue, approval dialog, assistant
 > dock, and safe named git actions are implemented. Proposed file edits,
 > branch-management UI, deploy triggers, and free-form terminal remain gated
-> (D32 candidates).
+> (D33+ candidates — D32 landed 2026-07-06 as the topology/discovery/promotion
+> adoption bridge instead; see `docs/decisions/d32-human-rooted-topology.md`).
 Replaces the VSCode + Claude Code workflow for non-technical founders.
 The command center gains file editing, diff review, branch management,
 commit/build/test visibility, deploy triggers, and terminal access —

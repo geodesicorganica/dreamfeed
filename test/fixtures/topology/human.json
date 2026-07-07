@@ -1,0 +1,44 @@
+{
+ "nodes": [
+  {
+   "id": "alice",
+   "kind": "human",
+   "name": "Alice",
+   "role": "Owner",
+   "tags": [
+    "primary"
+   ]
+  },
+  {
+   "id": "bob",
+   "kind": "human",
+   "name": "Bob",
+   "role": null,
+   "tags": []
+  },
+  {
+   "id": "agent-1",
+   "kind": "agent",
+   "name": "PlannerAgent",
+   "role": "Planner",
+   "tags": []
+  }
+ ],
+ "edges": [
+  {
+   "from": "alice",
+   "to": "agent-1",
+   "type": "dispatches-to"
+  },
+  {
+   "from": "agent-1",
+   "to": "PLAN.md",
+   "type": "produces"
+  },
+  {
+   "from": "bob",
+   "to": "PLAN.md",
+   "type": "reads"
+  }
+ ]
+}

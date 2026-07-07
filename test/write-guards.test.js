@@ -243,3 +243,81 @@ test('containment: a task title containing an escaped pipe round-trips without c
   assert.strictEqual(task.title.value, 'compare a | b');
   assert.strictEqual(task.status.value, 'active');
 });
+
+// --- D32: promote-topology rides the same governed lifecycle ---------------------
+
+test('D32 promote-topology: create manifest via intent → plan → approve → execute → ledger', async () => {
+  const intentRes = await post('/api/intents', { kind: 'promote-topology', payload: {
+    nodes: [{ id: 'reviewer', kind: 'agent', name: 'Reviewer', promotedFrom: 'reviewer.md', matchedBy: ['frontmatter:role'] }],
+    edges: [{ from: 'reviewer', type: 'produces', to: 'docs/review.md' }],
+  } });
+  assert.strictEqual(intentRes.status, 201);
+  const { intent } = await intentRes.json();
+  const planRes = await post(`/api/intents/${intent.id}/plan`);
+  assert.strictEqual(planRes.status, 200);
+  const planData = await planRes.json();
+  assert.strictEqual(planData.plan.class, 'approve', 'promote-topology defaults to approve class');
+  assert.strictEqual(planData.plan.ops[0].baseHash, null, 'create semantics: baseHash null = manifest must not exist yet');
+  assert.strictEqual(planData.approval, undefined, 'approve class is never auto-approved');
+  assert.strictEqual((await post(`/api/plans/${planData.plan.id}/approve`)).status, 200);
+  assert.strictEqual((await post(`/api/plans/${planData.plan.id}/execute`)).status, 200);
+  const manifest = fs.readFileSync(path.join(PROJ, 'os', 'topology.md'), 'utf8');
+  assert.match(manifest, /\| reviewer \| agent \| Reviewer \|/);
+  assert.match(manifest, /\| reviewer \| produces \| docs\/review\.md \|/);
+  const events = readLedger({ after: 0 });
+  assert.ok(events.some((e) => e.type === 'op-applied' && e.path === 'os/topology.md'), 'promotion is ledgered');
+});
+
+test('D32 promote-topology: merge preserves promoted rows; external edits surface as drift', async () => {
+  const absManifest = path.join(PROJ, 'os', 'topology.md');
+  const r1 = await post('/api/intents', { kind: 'promote-topology', payload: { nodes: [{ id: 'ci', kind: 'workflow', name: 'CI' }] } });
+  const p1 = await (await post(`/api/intents/${(await r1.json()).intent.id}/plan`)).json();
+  assert.ok(p1.plan.ops[0].baseHash, 'merge plan hash-binds to the existing manifest');
+  fs.appendFileSync(absManifest, '\n<!-- external edit -->\n');
+  await post(`/api/plans/${p1.plan.id}/approve`);
+  const drifted = await post(`/api/plans/${p1.plan.id}/execute`);
+  assert.strictEqual(drifted.status, 409, 'drifted manifest refuses execution');
+  const r2 = await post('/api/intents', { kind: 'promote-topology', payload: { nodes: [{ id: 'ci', kind: 'workflow', name: 'CI' }] } });
+  const p2 = await (await post(`/api/intents/${(await r2.json()).intent.id}/plan`)).json();
+  await post(`/api/plans/${p2.plan.id}/approve`);
+  assert.strictEqual((await post(`/api/plans/${p2.plan.id}/execute`)).status, 200, 'replan against current state executes');
+  const manifest = fs.readFileSync(absManifest, 'utf8');
+  assert.match(manifest, /\| reviewer \| agent \|/, 'existing promoted rows survive the merge');
+  assert.match(manifest, /\| ci \| workflow \|/, 'new promotion is appended');
+});
+
+test('D32 promote-topology: execution refreshes discovery and hides promoted sources', async () => {
+  const rel = 'cache-reviewer.md';
+  fs.writeFileSync(path.join(PROJ, rel), [
+    '---',
+    'role: reviewer',
+    '---',
+    '# Reviewer',
+    '',
+  ].join('\n'), 'utf8');
+  const before = await (await fetch(base + '/api/discovery?rescan=1')).json();
+  assert.ok(before.candidates.some((c) => c.sourcePath === rel), 'candidate is visible before promotion');
+
+  const intentRes = await post('/api/intents', { kind: 'promote-topology', payload: {
+    nodes: [{ id: 'cache-reviewer', kind: 'agent', name: 'Cache Reviewer', promotedFrom: rel, matchedBy: ['frontmatter:role'] }],
+  } });
+  assert.strictEqual(intentRes.status, 201);
+  const { intent } = await intentRes.json();
+  const planData = await (await post(`/api/intents/${intent.id}/plan`)).json();
+  await post(`/api/plans/${planData.plan.id}/approve`);
+  const executed = await (await post(`/api/plans/${planData.plan.id}/execute`)).json();
+  assert.strictEqual(executed.execution.status, 'succeeded');
+
+  const after = await (await fetch(base + '/api/discovery')).json();
+  assert.ok(!after.candidates.some((c) => c.sourcePath === rel), 'promoted source is not returned from cached discovery');
+});
+
+test('D32 promote-topology: unknown kinds and empty payloads are unplannable', async () => {
+  const bad = await post('/api/intents', { kind: 'promote-topology', payload: { nodes: [{ id: 'x', kind: 'martian' }] } });
+  const badPlan = await post(`/api/intents/${(await bad.json()).intent.id}/plan`);
+  assert.strictEqual(badPlan.status, 400);
+  assert.match((await badPlan.json()).error, /unknown node kind/);
+  const empty = await post('/api/intents', { kind: 'promote-topology', payload: {} });
+  const emptyPlan = await post(`/api/intents/${(await empty.json()).intent.id}/plan`);
+  assert.strictEqual(emptyPlan.status, 400);
+});

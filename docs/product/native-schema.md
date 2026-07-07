@@ -105,3 +105,48 @@ operations default to `denied`; a missing file yields the defaults above.
   confirm before extending).
 - Writes to these files happen **only** via the governed lifecycle (D31), which
   rewrites the file atomically with base-hash drift detection.
+
+## Topology manifest — `os/topology.md` (D32)
+
+The durable home of **promoted** topology: candidates discovered by the D32
+adoption-bridge scanner become source-backed truth here, written only through
+the governed lifecycle (`promote-topology` intent, `approve`-class by default).
+The `.dreamfeed/` sidecar may hold *pending* candidates before approval; it is
+never authority over this file.
+
+Format: flat frontmatter + two markdown tables (the Gate C frontmatter subset
+cannot express nested node/edge lists; tables reuse the `os/policy.md` parser
+precedent — this refines the sketch in the D32 record).
+
+```markdown
+---
+definition_type: topology_manifest
+schema: dreamfeed-topology/v1
+---
+
+# Topology Manifest
+
+## Nodes
+
+| Id | Kind | Name | Promoted From | Matched By |
+|---|---|---|---|---|
+| planner | agent | Planner | src/agents/planner.md | path:agents |
+
+## Edges
+
+| From | Type | To |
+|---|---|---|
+| planner | produces | docs/PLAN.md |
+```
+
+Rules:
+
+- `Kind` ∈ `agent | skill | workflow | document | code-surface | memory`;
+  `Type` ∈ the seven Gate C edge types. Unknown values become parse **errors**,
+  never silent nodes.
+- Promoted objects parse as tier **Canonical** with
+  `source_evidence: os/topology.md` — the manifest is git-versioned project
+  truth (founder-confirmed tier call, D32).
+- The manifest is an **additional adapter family**: Gate C parsing of the six
+  Stakeport object families is untouched, and `agents/*/AGENT.md` definitions
+  continue to parse alongside it.

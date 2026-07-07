@@ -1,0 +1,520 @@
+{
+ "nodes": [
+  {
+   "id": "chief-of-staff",
+   "kind": "agent",
+   "name": "Chief of Staff Agent",
+   "role": "operational",
+   "tags": []
+  },
+  {
+   "id": "workflow-planning",
+   "kind": "skill",
+   "name": "workflow-planning",
+   "role": null,
+   "tags": []
+  },
+  {
+   "id": "content-marketing",
+   "kind": "agent",
+   "name": "Content Marketing Agent",
+   "role": "execution",
+   "tags": []
+  },
+  {
+   "id": "website-copywriting",
+   "kind": "skill",
+   "name": "website-copywriting",
+   "role": null,
+   "tags": []
+  },
+  {
+   "id": "developer",
+   "kind": "agent",
+   "name": "Developer Agent",
+   "role": "execution",
+   "tags": []
+  },
+  {
+   "id": "website-build",
+   "kind": "skill",
+   "name": "website-build",
+   "role": null,
+   "tags": []
+  },
+  {
+   "id": "founder",
+   "kind": "agent",
+   "name": "Founder Agent",
+   "role": "strategic",
+   "tags": []
+  },
+  {
+   "id": "goal-setting",
+   "kind": "skill",
+   "name": "goal-setting",
+   "role": null,
+   "tags": []
+  },
+  {
+   "id": "priority-setting",
+   "kind": "skill",
+   "name": "priority-setting",
+   "role": null,
+   "tags": []
+  },
+  {
+   "id": "product-spec",
+   "kind": "skill",
+   "name": "product-spec",
+   "role": null,
+   "tags": []
+  },
+  {
+   "id": "research-intelligence",
+   "kind": "agent",
+   "name": "Research Intelligence Agent",
+   "role": "execution",
+   "tags": []
+  },
+  {
+   "id": "risk-brief-production",
+   "kind": "skill",
+   "name": "risk-brief-production",
+   "role": null,
+   "tags": []
+  }
+ ],
+ "edges": [
+  {
+   "from": "chief-of-staff",
+   "to": "workflow-planning",
+   "type": "owns"
+  },
+  {
+   "from": "chief-of-staff",
+   "to": "founder",
+   "type": "reports-to"
+  },
+  {
+   "from": "chief-of-staff",
+   "to": "research-intelligence",
+   "type": "dispatches-to"
+  },
+  {
+   "from": "chief-of-staff",
+   "to": "content-marketing",
+   "type": "dispatches-to"
+  },
+  {
+   "from": "chief-of-staff",
+   "to": "developer",
+   "type": "dispatches-to"
+  },
+  {
+   "from": "chief-of-staff",
+   "to": "founder",
+   "type": "consumes-from"
+  },
+  {
+   "from": "chief-of-staff",
+   "to": "agents/founder/outputs/strategic_directives.md",
+   "type": "reads"
+  },
+  {
+   "from": "chief-of-staff",
+   "to": "agents/founder/outputs/quarterly_priorities.md",
+   "type": "reads"
+  },
+  {
+   "from": "chief-of-staff",
+   "to": "agents/founder/outputs/active_constraints.md",
+   "type": "reads"
+  },
+  {
+   "from": "chief-of-staff",
+   "to": "agents/founder/outputs/strategic_initiatives.md",
+   "type": "reads"
+  },
+  {
+   "from": "chief-of-staff",
+   "to": "agents/founder/outputs/agent_dispatch.md",
+   "type": "reads"
+  },
+  {
+   "from": "chief-of-staff",
+   "to": "workflow-planning",
+   "type": "owns"
+  },
+  {
+   "from": "workflow-planning",
+   "to": "agents/chief-of-staff/outputs/initiative_brief.md",
+   "type": "produces"
+  },
+  {
+   "from": "workflow-planning",
+   "to": "agents/chief-of-staff/outputs/workflow_plan.md",
+   "type": "produces"
+  },
+  {
+   "from": "workflow-planning",
+   "to": "agents/chief-of-staff/outputs/domain_dispatch.md",
+   "type": "produces"
+  },
+  {
+   "from": "workflow-planning",
+   "to": "agents/chief-of-staff/outputs/recommendation_packet.md",
+   "type": "produces"
+  },
+  {
+   "from": "workflow-planning",
+   "to": "agents/chief-of-staff/outputs/constraints_check.md",
+   "type": "produces"
+  },
+  {
+   "from": "workflow-planning",
+   "to": "goal-setting",
+   "type": "depends-on"
+  },
+  {
+   "from": "workflow-planning",
+   "to": "product-spec",
+   "type": "depends-on"
+  },
+  {
+   "from": "content-marketing",
+   "to": "website-copywriting",
+   "type": "owns"
+  },
+  {
+   "from": "content-marketing",
+   "to": "content-brief-production",
+   "type": "owns"
+  },
+  {
+   "from": "content-marketing",
+   "to": "website-strategy",
+   "type": "owns"
+  },
+  {
+   "from": "content-marketing",
+   "to": "chief-of-staff",
+   "type": "reports-to"
+  },
+  {
+   "from": "content-marketing",
+   "to": "chief-of-staff",
+   "type": "consumes-from"
+  },
+  {
+   "from": "content-marketing",
+   "to": "research-intelligence",
+   "type": "consumes-from"
+  },
+  {
+   "from": "content-marketing",
+   "to": "agents/founder/outputs/active_constraints.md",
+   "type": "reads"
+  },
+  {
+   "from": "content-marketing",
+   "to": "shared/voice-and-tone.md",
+   "type": "reads"
+  },
+  {
+   "from": "content-marketing",
+   "to": "shared/proof-points.md",
+   "type": "reads"
+  },
+  {
+   "from": "content-marketing",
+   "to": "shared/messaging-pillars.md",
+   "type": "reads"
+  },
+  {
+   "from": "content-marketing",
+   "to": "shared/audiences.md",
+   "type": "reads"
+  },
+  {
+   "from": "content-marketing",
+   "to": "agents/research-intelligence/outputs/INDEX.md",
+   "type": "reads"
+  },
+  {
+   "from": "content-marketing",
+   "to": "website-copywriting",
+   "type": "owns"
+  },
+  {
+   "from": "website-copywriting",
+   "to": "agents/content-marketing/outputs/",
+   "type": "produces"
+  },
+  {
+   "from": "website-copywriting",
+   "to": "risk-brief-production",
+   "type": "depends-on"
+  },
+  {
+   "from": "developer",
+   "to": "website-build",
+   "type": "owns"
+  },
+  {
+   "from": "developer",
+   "to": "cms-publishing",
+   "type": "owns"
+  },
+  {
+   "from": "developer",
+   "to": "chief-of-staff",
+   "type": "reports-to"
+  },
+  {
+   "from": "developer",
+   "to": "chief-of-staff",
+   "type": "consumes-from"
+  },
+  {
+   "from": "developer",
+   "to": "content-marketing",
+   "type": "consumes-from"
+  },
+  {
+   "from": "developer",
+   "to": "agents/founder/outputs/active_constraints.md",
+   "type": "reads"
+  },
+  {
+   "from": "developer",
+   "to": "docs/stakeport-brand-guidelines.html",
+   "type": "reads"
+  },
+  {
+   "from": "developer",
+   "to": "docs/stakeport-brand-guidelines.md",
+   "type": "reads"
+  },
+  {
+   "from": "developer",
+   "to": "agents/chief-of-staff/outputs/content-operating-cadence/content_index.md",
+   "type": "reads"
+  },
+  {
+   "from": "developer",
+   "to": "website-build",
+   "type": "owns"
+  },
+  {
+   "from": "website-build",
+   "to": "website build + Vercel deploy (no governance file)",
+   "type": "produces"
+  },
+  {
+   "from": "website-build",
+   "to": "website-copywriting",
+   "type": "depends-on"
+  },
+  {
+   "from": "founder",
+   "to": "goal-setting",
+   "type": "owns"
+  },
+  {
+   "from": "founder",
+   "to": "priority-setting",
+   "type": "owns"
+  },
+  {
+   "from": "founder",
+   "to": "product-spec",
+   "type": "owns"
+  },
+  {
+   "from": "founder",
+   "to": "chief-of-staff",
+   "type": "dispatches-to"
+  },
+  {
+   "from": "founder",
+   "to": "shared/company-overview.md",
+   "type": "reads"
+  },
+  {
+   "from": "founder",
+   "to": "shared/product-context.md",
+   "type": "reads"
+  },
+  {
+   "from": "founder",
+   "to": "agents/founder/outputs/strategic_directives.md",
+   "type": "reads"
+  },
+  {
+   "from": "founder",
+   "to": "agents/founder/outputs/quarterly_priorities.md",
+   "type": "reads"
+  },
+  {
+   "from": "founder",
+   "to": "agents/founder/outputs/active_constraints.md",
+   "type": "reads"
+  },
+  {
+   "from": "founder",
+   "to": "agents/founder/outputs/strategic_initiatives.md",
+   "type": "reads"
+  },
+  {
+   "from": "founder",
+   "to": "goal-setting",
+   "type": "owns"
+  },
+  {
+   "from": "goal-setting",
+   "to": "agents/founder/outputs/strategic_directives.md",
+   "type": "produces"
+  },
+  {
+   "from": "goal-setting",
+   "to": "agents/founder/outputs/strategic_initiatives.md",
+   "type": "produces"
+  },
+  {
+   "from": "goal-setting",
+   "to": "agents/founder/outputs/decision_principles.md",
+   "type": "produces"
+  },
+  {
+   "from": "goal-setting",
+   "to": "agents/founder/outputs/quarterly_priorities.md",
+   "type": "produces"
+  },
+  {
+   "from": "goal-setting",
+   "to": "agents/founder/outputs/active_constraints.md",
+   "type": "produces"
+  },
+  {
+   "from": "goal-setting",
+   "to": "agents/founder/outputs/validation_criteria.md",
+   "type": "produces"
+  },
+  {
+   "from": "founder",
+   "to": "priority-setting",
+   "type": "owns"
+  },
+  {
+   "from": "priority-setting",
+   "to": "agents/founder/outputs/weekly_focus.md",
+   "type": "produces"
+  },
+  {
+   "from": "priority-setting",
+   "to": "agents/founder/outputs/weekly_priorities.md",
+   "type": "produces"
+  },
+  {
+   "from": "priority-setting",
+   "to": "agents/founder/outputs/blocked_items.md",
+   "type": "produces"
+  },
+  {
+   "from": "priority-setting",
+   "to": "agents/founder/outputs/decision_queue.md",
+   "type": "produces"
+  },
+  {
+   "from": "priority-setting",
+   "to": "agents/founder/outputs/agent_dispatch.md",
+   "type": "produces"
+  },
+  {
+   "from": "priority-setting",
+   "to": "agents/founder/outputs/weekly_constraints_check.md",
+   "type": "produces"
+  },
+  {
+   "from": "priority-setting",
+   "to": "goal-setting",
+   "type": "depends-on"
+  },
+  {
+   "from": "founder",
+   "to": "product-spec",
+   "type": "owns"
+  },
+  {
+   "from": "product-spec",
+   "to": "agents/founder/outputs/product-specs/interrogation_transcript.md",
+   "type": "produces"
+  },
+  {
+   "from": "product-spec",
+   "to": "agents/founder/outputs/product-specs/product_spec.md",
+   "type": "produces"
+  },
+  {
+   "from": "product-spec",
+   "to": "agents/founder/outputs/product-specs/initiative_seed.md",
+   "type": "produces"
+  },
+  {
+   "from": "product-spec",
+   "to": "agents/founder/outputs/product-specs/planning_brief.md",
+   "type": "produces"
+  },
+  {
+   "from": "research-intelligence",
+   "to": "risk-brief-production",
+   "type": "owns"
+  },
+  {
+   "from": "research-intelligence",
+   "to": "methodology-brief-production",
+   "type": "owns"
+  },
+  {
+   "from": "research-intelligence",
+   "to": "chief-of-staff",
+   "type": "reports-to"
+  },
+  {
+   "from": "research-intelligence",
+   "to": "chief-of-staff",
+   "type": "consumes-from"
+  },
+  {
+   "from": "research-intelligence",
+   "to": "agents/founder/outputs/active_constraints.md",
+   "type": "reads"
+  },
+  {
+   "from": "research-intelligence",
+   "to": "shared/proof-points.md",
+   "type": "reads"
+  },
+  {
+   "from": "research-intelligence",
+   "to": "shared/voice-and-tone.md",
+   "type": "reads"
+  },
+  {
+   "from": "research-intelligence",
+   "to": "risk-brief-production",
+   "type": "owns"
+  },
+  {
+   "from": "risk-brief-production",
+   "to": "agents/research-intelligence/outputs/risk-briefs/",
+   "type": "produces"
+  },
+  {
+   "from": "risk-brief-production",
+   "to": "agents/research-intelligence/outputs/INDEX.md",
+   "type": "produces"
+  }
+ ]
+}

@@ -117,9 +117,32 @@ test('topology graph normalizes node kinds before layout and SVG classification'
   assert.match(app, /kind: fieldValue\(n\.nodeType, 'artifact'\)/, 'source topology node kind is normalized to a string');
   assert.match(app, /const kind = endpointKind\(type, key, direction\)/, 'synthetic endpoint kind remains a string');
   assert.doesNotMatch(app, /kind: n\.nodeType/, 'wrapped nodeType fields are not stored as graph node kind');
-  assert.match(app, /n\.kind === 'agent'/, 'graph layout classifies normalized kind strings');
+  assert.match(app, /meta\.kind === 'agent'/, 'graph SVG classifies normalized kind strings');
   assert.match(app, /meta\.kind\.includes\('planned'\)/, 'graph SVG planned-node check operates on normalized kind strings');
   assert.match(app, /n\.kind === 'artifact'/, 'artifact filtering operates on normalized kind strings');
+});
+
+test('D32: topology geometry is delegated to the human-rooted orchestrator', () => {
+  const app = read('public', 'app.js');
+  const html = read('public', 'index.html');
+  const server = read('src', 'server.js');
+  assert.match(app, /DreamfeedLayout\.orchestrate\(/, 'graphLayout delegates geometry to public/layout.js');
+  assert.match(app, /function registerHumanRoot\(spec\)/, 'the human root gets a UI record like synthetic endpoints');
+  assert.match(app, /graphStrategy: 'auto'/, 'strategy override starts on auto and lives in view state');
+  assert.match(app, /data-strategy/, 'strategy override is a visible control');
+  assert.match(app, /data-loop/, 'loops are selectable for highlight');
+  assert.match(html, /<script src="\/layout\.js"><\/script>/, 'layout module has a script tag');
+  assert.ok(html.indexOf('/layout.js') < html.indexOf('/app.js'), 'layout.js loads before app.js');
+  assert.match(server, /'\/layout\.js'/, 'layout.js is an explicit STATIC route');
+});
+
+test('D32: discovered candidate promotion uses source-stable ids and source links', () => {
+  const app = read('public', 'app.js');
+  assert.match(app, /function candidateManifestId\(candidate\)/, 'promotion id generation is factored');
+  assert.match(app, /candidate\.sourcePath \|\| candidate\.id \|\| candidate\.name/, 'promotion ids are derived from source path before display name');
+  assert.ok(
+    app.includes('const source = n.ref ? sourceInfo(n.ref.source_evidence)?.path : n.src ? n.src : isFileRef(n.key) ? n.key : null;'),
+    'discovered node rows link to the real discovery source path before synthetic ids');
 });
 
 test('topology graph registers synthetic endpoints before exposing selectable rows', () => {

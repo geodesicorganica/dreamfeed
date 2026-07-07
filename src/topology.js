@@ -7,7 +7,14 @@
 
 const fs = require('fs');
 const path = require('path');
-const { REPO_ROOT, parseFile, field, nys, slugify } = require('./parse');
+const { REPO_ROOT, parseFile, field, nys, slugify, findTable } = require('./parse');
+
+// D32: node kinds and edge types a promoted manifest may declare. The manifest
+// is an ADDITIONAL adapter family — Gate C parsing of the six Stakeport object
+// families is untouched.
+const MANIFEST_NODE_KINDS = new Set(['agent', 'skill', 'workflow', 'document', 'code-surface', 'memory']);
+const MANIFEST_EDGE_TYPES = new Set(['owns', 'reports-to', 'depends-on', 'dispatches-to', 'consumes-from', 'reads', 'produces']);
+const MANIFEST_SCHEMA = 'dreamfeed-topology/v1';
 
 // ---------------------------------------------------------------------------
 // Definition-file discovery (Phase 0b): AGENT.md at agents/<agent>/AGENT.md and
@@ -101,6 +108,21 @@ function buildTopology(repoRoot = REPO_ROOT) {
     }
   }
 
+  // D32: merge the promoted os/topology.md manifest. Promoted objects are
+  // Canonical — the manifest is git-versioned project truth written through
+  // the governed lifecycle (founder-confirmed tier call, D32).
+  const manifest = readManifest(repoRoot);
+  for (const n of manifest.nodes) nodes.push(n);
+  for (const e of manifest.edges) edges.push(e);
+  for (const err of manifest.errors) errors.push(err);
+  if (manifest.present) {
+    repoInventory.push({
+      path: field('os/topology.md', 'Canonical'),
+      kind: field('topology-manifest', 'Canonical'),
+      hasDefinitionFrontmatter: field(manifest.hasFrontmatter, 'Derived'),
+    });
+  }
+
   // Edge-tier tally (for the UI legend / self-verification).
   const tally = { Canonical: 0, Derived: 0, nys: 0 };
   for (const e of edges) {
@@ -110,6 +132,56 @@ function buildTopology(repoRoot = REPO_ROOT) {
   }
 
   return { nodes, edges, repoInventory, errors, tally };
+}
+
+// D32: read the promoted topology manifest (os/topology.md). Table-based —
+// the flat-YAML frontmatter subset cannot express node/edge lists, and the
+// table parser (findTable) is already the policy-file precedent.
+function readManifest(repoRoot = REPO_ROOT) {
+  const out = { present: false, hasFrontmatter: false, nodes: [], edges: [], errors: [] };
+  const rel = 'os/topology.md';
+  const abs = path.join(repoRoot, rel);
+  if (!fs.existsSync(abs)) return out;
+  out.present = true;
+  const f = parseFile(abs, repoRoot);
+  if (f.error) { out.errors.push({ path: rel, error: f.error }); return out; }
+  out.hasFrontmatter = !!(f.frontmatter && f.frontmatter.schema);
+  if (!f.frontmatter || f.frontmatter.schema !== MANIFEST_SCHEMA) {
+    out.errors.push({ path: rel, error: `invalid topology manifest schema: expected ${MANIFEST_SCHEMA}` });
+    return out;
+  }
+  const nodesTable = findTable(f.content, ['Id', 'Kind']);
+  if (nodesTable) {
+    nodesTable.rows.forEach((row, i) => {
+      const [id, kind, name, promotedFrom, matchedBy] = row.cells.map((c) => (c || '').trim());
+      if (!id) return;
+      if (!MANIFEST_NODE_KINDS.has(kind)) { out.errors.push({ path: rel, error: `nodes table row ${i + 1}: unknown kind "${kind}"` }); return; }
+      out.nodes.push({
+        nodeType: kind,
+        id: field(id, 'Canonical'),
+        name: field(name || id, 'Canonical'),
+        status: field('promoted', 'Canonical'),
+        promoted_from: promotedFrom && promotedFrom !== '—' ? field(promotedFrom, 'Canonical') : nys('Canonical'),
+        matched_by: matchedBy && matchedBy !== '—' ? field(matchedBy, 'Canonical') : nys('Canonical'),
+        source_evidence: field({ file: rel, locator: `nodes table row ${i + 1}` }, 'Derived'),
+        frontmatterPresent: true,
+      });
+    });
+  }
+  const edgesTable = findTable(f.content, ['From', 'Type', 'To']);
+  if (edgesTable) {
+    edgesTable.rows.forEach((row, i) => {
+      const [from, type, to] = row.cells.map((c) => (c || '').trim());
+      if (!from || !to) return;
+      if (!MANIFEST_EDGE_TYPES.has(type)) { out.errors.push({ path: rel, error: `edges table row ${i + 1}: unknown type "${type}"` }); return; }
+      out.edges.push({
+        from: field(from, 'Canonical'), to: field(to, 'Canonical'), type: field(type, 'Canonical'),
+        tier: field('Canonical', 'Canonical'),
+        source_evidence: field({ file: rel, locator: `edges table row ${i + 1}` }, 'Derived'),
+      });
+    });
+  }
+  return out;
 }
 
 function canonEdge(from, to, type, file, fmField) {
@@ -170,4 +242,4 @@ function buildRoadmap(repoRoot = REPO_ROOT) {
   return { objects, errors };
 }
 
-module.exports = { buildTopology, buildRoadmap, discoverDefinitionFiles };
+module.exports = { buildTopology, buildRoadmap, discoverDefinitionFiles, readManifest, MANIFEST_NODE_KINDS, MANIFEST_EDGE_TYPES, MANIFEST_SCHEMA };

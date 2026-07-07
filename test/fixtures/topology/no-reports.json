@@ -1,0 +1,47 @@
+{
+ "nodes": [
+  {
+   "id": "planner",
+   "kind": "agent",
+   "name": "Planner",
+   "role": null,
+   "tags": []
+  },
+  {
+   "id": "builder",
+   "kind": "agent",
+   "name": "Builder",
+   "role": null,
+   "tags": []
+  },
+  {
+   "id": "plan-skill",
+   "kind": "skill",
+   "name": "Planning",
+   "role": null,
+   "tags": []
+  }
+ ],
+ "edges": [
+  {
+   "from": "planner",
+   "to": "builder",
+   "type": "dispatches-to"
+  },
+  {
+   "from": "planner",
+   "to": "plan-skill",
+   "type": "owns"
+  },
+  {
+   "from": "plan-skill",
+   "to": "docs/PLAN.md",
+   "type": "produces"
+  },
+  {
+   "from": "builder",
+   "to": "docs/PLAN.md",
+   "type": "reads"
+  }
+ ]
+}

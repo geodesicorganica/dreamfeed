@@ -262,6 +262,18 @@ table.grid th { position: sticky; top: 0; background: var(--df-panel-raised); co
 .gnode:hover rect, .gnode:hover circle, .gnode.sel rect, .gnode.sel circle { stroke: var(--df-text-1); stroke-width: 2.5; }
 .gnode text { fill: var(--df-text-1); font: 500 11px/1 var(--font-sans); pointer-events: none; }
 .gnode .art-label { fill: var(--df-text-2); font: 400 10px/1 var(--font-mono); }
+.graph-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; margin-bottom: 8px; font-size: var(--fs-50); color: var(--df-text-2); }
+.graph-toolbar strong { color: var(--df-text-1); font-weight: 600; }
+.graph-warn { color: var(--df-amber); }
+.strategy-switch { display: inline-flex; gap: 4px; }
+.strategy-btn { padding: 2px 9px; font-size: var(--fs-50); color: var(--df-text-2); background: var(--df-bg-sunken); border: 1px solid var(--df-line); border-radius: var(--radius); cursor: pointer; }
+.strategy-btn.active { color: var(--df-text-1); border-color: var(--df-text-2); background: var(--df-panel); }
+.loop-item { display: block; width: 100%; margin-bottom: 4px; padding: 5px 7px; text-align: left; font-size: var(--fs-50); color: var(--df-text-2); background: var(--df-bg-sunken); border: 1px solid var(--df-line); border-radius: var(--radius); cursor: pointer; }
+.loop-item.sel { color: var(--df-text-1); border-color: var(--df-green); }
+.loop-tag { margin-right: 6px; padding: 0 5px; font-size: var(--fs-50); color: var(--df-green); border: 1px solid var(--df-green); border-radius: 8px; }
+.gnode.human text { font-weight: 600; }
+.edge-runtime { stroke: #e6c079; stroke-dasharray: 2 4; stroke-width: 1.6; opacity: .8; }
+.edge-discovered { stroke: #8fb4d8; stroke-dasharray: 3 4; stroke-width: 1.1; opacity: .45; }
 .gedge { fill: none; stroke-width: 1.25; opacity: .58; }
 .gedge.dim { opacity: .12; }
 .gedge.hot { opacity: 1; stroke-width: 2.1; }

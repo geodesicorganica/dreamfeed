@@ -153,6 +153,39 @@ test('zero-dep: package.json declares no runtime dependencies', () => {
 
 // --- denied operations are structurally unplannable ------------------------------
 
+// --- D32: adoption bridge stays inside the Gate G envelope -----------------------
+
+test('D32: the mutating-route set is exactly the D31 seven — promotion adds an intent kind, not a route', () => {
+  assert.deepStrictEqual(
+    Object.fromEntries(Object.entries(MUTATING).map(([r, m]) => [r, [...m]])),
+    {
+      '/api/intents': ['POST'],
+      '/api/intents/:id/plan': ['POST'],
+      '/api/plans/:id/approve': ['POST'],
+      '/api/plans/:id/execute': ['POST'],
+      '/api/executions/:id/rollback': ['POST'],
+      '/api/work/tasks/transition': ['POST'],
+      '/api/assistant/:mode/messages': ['POST'],
+    },
+    'D32 must not expand the mutating surface; promote-topology rides the existing lifecycle routes');
+});
+
+test('D32: promote-topology is explicitly policy-classed approve in the defaults', () => {
+  const { DEFAULTS } = require('../src/commands/policy');
+  assert.strictEqual(DEFAULTS['promote-topology'], 'approve',
+    'promote-topology must be declared in policy defaults (unknown operations are denied)');
+});
+
+test('D32: /api/discovery exists and is GET-only', async () => {
+  for (const method of ['POST', 'PUT', 'PATCH', 'DELETE']) {
+    const res = await fetch(base + '/api/discovery', { method });
+    assert.strictEqual(res.status, 405, `${method} /api/discovery must be 405`);
+  }
+  const res = await fetch(base + '/api/discovery');
+  assert.notStrictEqual(res.status, 404, 'GET /api/discovery must be a real route');
+  assert.notStrictEqual(res.status, 405, 'GET /api/discovery must accept GET');
+});
+
 test('denied class: git force-push and history rewrites never appear in the executor allowlist', () => {
   // Static guard until (and after) the executor exists: no src/ file may build
   // a git invocation containing force/history-rewrite flags.

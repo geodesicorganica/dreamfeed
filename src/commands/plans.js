@@ -9,6 +9,7 @@ const crypto = require('crypto');
 const { rootToken, splitRow } = require('../parse');
 const { hashText } = require('../write');
 const { findTask, TASK_STATUS } = require('../nativeSchema');
+const { readManifest, MANIFEST_NODE_KINDS, MANIFEST_EDGE_TYPES } = require('../topology');
 const { classFor } = require('./policy');
 
 // Safe named git actions (D31 step 5 scope). First token is the subcommand;
@@ -102,6 +103,72 @@ function planTaskTransition(intent, repoRoot) {
   };
 }
 
+// D32: promote discovered candidates into the durable os/topology.md manifest.
+// Create-or-merge: existing manifest rows survive; incoming rows dedupe by id
+// (nodes) and from|type|to (edges). baseHash null = the manifest must not
+// exist at execution (create semantics in write.js/checkDrift).
+const MANIFEST_PATH = 'os/topology.md';
+function renderManifest(nodes, edges) {
+  const cell = (c) => String(c === undefined || c === null ? '' : c).replace(/\|/g, '\\|').trim() || '—';
+  const lines = [
+    '---', 'definition_type: topology_manifest', 'schema: dreamfeed-topology/v1', '---', '',
+    '# Topology Manifest', '',
+    'Promoted through the governed lifecycle (D32). Written by approved',
+    'promote-topology plans; edits outside the lifecycle will show as drift.', '',
+    '## Nodes', '',
+    '| Id | Kind | Name | Promoted From | Matched By |', '|---|---|---|---|---|',
+  ];
+  for (const n of nodes) lines.push(`| ${cell(n.id)} | ${cell(n.kind)} | ${cell(n.name)} | ${cell(n.promotedFrom)} | ${cell((n.matchedBy || []).join(', '))} |`);
+  lines.push('', '## Edges', '', '| From | Type | To |', '|---|---|---|');
+  for (const e of edges) lines.push(`| ${cell(e.from)} | ${cell(e.type)} | ${cell(e.to)} |`);
+  lines.push('');
+  return lines.join('\n');
+}
+function planPromoteTopology(intent, repoRoot) {
+  const p = intent.payload || {};
+  const inNodes = Array.isArray(p.nodes) ? p.nodes : [];
+  const inEdges = Array.isArray(p.edges) ? p.edges : [];
+  if (!inNodes.length && !inEdges.length) return { error: 'nothing to promote: payload has no nodes or edges', code: 'validation' };
+  for (const n of inNodes) {
+    if (!n || !String(n.id || '').trim()) return { error: 'node id required', code: 'validation' };
+    if (!MANIFEST_NODE_KINDS.has(n.kind)) return { error: `unknown node kind "${n.kind}"`, code: 'validation' };
+  }
+  for (const e of inEdges) {
+    if (!e || !String(e.from || '').trim() || !String(e.to || '').trim()) return { error: 'edge from/to required', code: 'validation' };
+    if (!MANIFEST_EDGE_TYPES.has(e.type)) return { error: `unknown edge type "${e.type}"`, code: 'validation' };
+  }
+  const abs = path.join(repoRoot, MANIFEST_PATH);
+  const existingContent = fs.existsSync(abs) ? fs.readFileSync(abs, 'utf8') : null;
+  const existing = readManifest(repoRoot);
+  const nodes = existing.nodes.map((n) => ({
+    id: n.id.value, kind: n.nodeType, name: n.name.value,
+    promotedFrom: n.promoted_from && !n.promoted_from.nys ? n.promoted_from.value : '',
+    matchedBy: n.matched_by && !n.matched_by.nys ? String(n.matched_by.value).split(',').map((s) => s.trim()).filter((s) => s && s !== '—') : [],
+  }));
+  const edges = existing.edges.map((e) => ({ from: e.from.value, type: e.type.value, to: e.to.value }));
+  const nodeIds = new Set(nodes.map((n) => n.id));
+  const promoted = [];
+  for (const n of inNodes) {
+    const clean = { id: String(n.id).trim(), kind: n.kind, name: String(n.name || n.id).trim(), promotedFrom: String(n.promotedFrom || '').trim(), matchedBy: Array.isArray(n.matchedBy) ? n.matchedBy.map(String) : [] };
+    if (nodeIds.has(clean.id)) { const i = nodes.findIndex((x) => x.id === clean.id); nodes[i] = clean; }
+    else { nodes.push(clean); nodeIds.add(clean.id); }
+    promoted.push(clean.id);
+  }
+  const edgeKey = (e) => `${e.from}|${e.type}|${e.to}`;
+  const edgeKeys = new Set(edges.map(edgeKey));
+  for (const e of inEdges) {
+    const clean = { from: String(e.from).trim(), type: e.type, to: String(e.to).trim() };
+    if (!edgeKeys.has(edgeKey(clean))) { edges.push(clean); edgeKeys.add(edgeKey(clean)); }
+  }
+  const newContent = renderManifest(nodes, edges);
+  return {
+    opName: 'promote-topology',
+    summary: `promote ${promoted.length ? promoted.join(', ') : `${inEdges.length} edge(s)`} → ${MANIFEST_PATH}${existingContent === null ? ' (create)' : ''}`,
+    ops: [{ type: 'write-file', path: MANIFEST_PATH, baseHash: existingContent === null ? null : hashText(existingContent), content: newContent }],
+    preview: { diff: lineDiff(existingContent || '', newContent), promoted },
+  };
+}
+
 function planGit(intent) {
   const opName = intent.kind;
   const spec = GIT_OPS[opName];
@@ -127,6 +194,7 @@ function computePlan(intent, { repoRoot, policy }) {
   if (!repoRoot) return { error: 'no project configured', code: 'no-project' };
   let core;
   if (intent.kind === 'task-transition') core = planTaskTransition(intent, repoRoot);
+  else if (intent.kind === 'promote-topology') core = planPromoteTopology(intent, repoRoot);
   else if (GIT_OPS[intent.kind]) core = planGit(intent);
   else return { error: `unknown intent kind "${intent.kind}"`, code: 'validation' };
   if (core.error) return core;

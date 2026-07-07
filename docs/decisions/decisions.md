@@ -12,6 +12,7 @@ OS decision queue (`agents/founder/outputs/decision_queue.md` in
 | D29 | Standalone extraction to `c:\Projects\dreamfeed-command-center` | 2026-07-01 | Resolved — completed | [d29-standalone-extraction.md](d29-standalone-extraction.md) |
 | D30 | Work-item home: GitHub Issues now; `os/` layer deferred to parser generalization | 2026-07-02 | Resolved — founder decision | [d30-work-item-home.md](d30-work-item-home.md) |
 | D31 | Write-Enabled Command Surface (PS-003 / Gate G): governed write lifecycle, native schema, assistant adapter | 2026-07-03 | Resolved — founder-approved | [d31-write-enabled-command-surface.md](d31-write-enabled-command-surface.md) |
+| D32 | Human-rooted topology, discovery scanner, promotion to `os/topology.md` (adoption bridge) | 2026-07-06 | Resolved — founder-accepted | [d32-human-rooted-topology.md](d32-human-rooted-topology.md) |
 
 ## Adding new decisions
 
