@@ -32,6 +32,23 @@
 - **Deletion model.** Founder-class delete clears title/body/tags/source content
   and leaves a `deleted-tombstone` with the prior content hash for audit.
 
+## Memory trust hardening addendum (D34, 2026-07-07)
+
+- **Inspectable retrieval.** Memory reads expose deterministic score reasons
+  and matched fields. These are derived at read time and do not mutate memory
+  records or access timestamps.
+- **Stable export.** Memory export includes export version, sidecar schema
+  version, project token, record counts, and deterministic ordering. Tombstones
+  export audit metadata and hashes only, never deleted content.
+- **Assistant context cap.** Assistant memory context is capped at 6 memories
+  and 4,000 memory body characters. The response and UI show the exact memory
+  context sent, memory ids used, and truncation metadata.
+- **Citation and conflict warnings.** Assistant responses include read-derived
+  memory citations, missing-citation warnings, and context warnings for low
+  confidence, manual, stale, missing-ref, or source/ledger-sensitive memory
+  use. These warnings do not arbitrate truth; source files and ledger records
+  remain authoritative.
+
 ## Data retention policy
 
 Ephemeral UI state stays in memory; the Gate G/D33 control-plane sidecar

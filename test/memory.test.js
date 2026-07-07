@@ -14,6 +14,7 @@ process.env.DREAMFEED_STATE_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'df-memo
 const STATE = process.env.DREAMFEED_STATE_DIR;
 const REPO_A = fs.mkdtempSync(path.join(os.tmpdir(), 'df-mem-repo-a-'));
 const REPO_B = fs.mkdtempSync(path.join(os.tmpdir(), 'df-mem-repo-b-'));
+const REPO_C = fs.mkdtempSync(path.join(os.tmpdir(), 'df-mem-repo-c-'));
 
 const store = require('../src/commands/store');
 const { rootToken } = require('../src/parse');
@@ -101,8 +102,59 @@ test('memory: approveable project memory validates, stores, retrieves, and expor
   assert.deepStrictEqual(other.used, []);
 
   const exported = exportMemories({ repoRoot: REPO_A });
-  assert.strictEqual(exported.schemaVersion, 1);
+  assert.strictEqual(exported.exportVersion, 1);
+  assert.strictEqual(exported.schemaVersion, store.SCHEMA_VERSION);
+  assert.strictEqual(exported.project.rootToken, rootToken(REPO_A));
+  assert.strictEqual(exported.counts.active, 1);
   assert.deepStrictEqual(exported.memories.map((m) => m.id), [saved.memory.id]);
+});
+
+test('memory: retrieval metadata, filters, export envelope, and caps are deterministic read-derived data', () => {
+  const first = applyMemoryUpsert({ draft: draftMemory({
+    kind: 'semantic',
+    title: 'Memory retrieval cadence',
+    body: 'Use retrieval reasons when explaining why a memory was selected.',
+    tags: ['retrieval', 'trust'],
+    source: { type: 'ledger', ref: '#7' },
+    confidence: 'high',
+  }, { repoRoot: REPO_C }).memory, actor: 'operator' }, REPO_C).memory;
+  const second = applyMemoryUpsert({ draft: draftMemory({
+    kind: 'preference',
+    title: 'Operator preference',
+    body: 'Prefer dense cockpit tables for inspection surfaces.',
+    tags: ['ui', 'dense'],
+    scope: { type: 'operator' },
+  }, { repoRoot: REPO_C }).memory, actor: 'operator' }, REPO_C).memory;
+
+  const before = JSON.stringify(store.get('memories', first.id));
+  const hit = retrieveMemories({ repoRoot: REPO_C, query: 'retrieval trust', tag: 'trust', limit: 10 });
+  assert.deepStrictEqual(hit.used.map((m) => m.id), [first.id]);
+  assert.ok(hit.items[0].retrieval.score > 0);
+  assert.ok(hit.items[0].retrieval.matchedFields.includes('tags'));
+  assert.ok(hit.items[0].retrieval.reasons.some((r) => r.startsWith('tag:')));
+  assert.strictEqual(JSON.stringify(store.get('memories', first.id)), before, 'retrieval must not mutate memory records');
+
+  const operatorScoped = retrieveMemories({ repoRoot: REPO_C, query: 'tables', scope: 'operator', limit: 10 });
+  assert.deepStrictEqual(operatorScoped.used.map((m) => m.id), [second.id]);
+
+  const capped = retrieveMemories({ repoRoot: REPO_C, query: 'retrieval', limit: 6, capChars: 24 });
+  assert.strictEqual(capped.contextMeta.capChars, 24);
+  assert.strictEqual(capped.contextMeta.truncated, true);
+  assert.match(capped.context, /memory context truncated by D34 cap/);
+
+  const archived = applyMemoryArchive({ memoryId: second.id, actor: 'operator' }, REPO_C).memory;
+  const deleted = applyMemoryDelete({ memoryId: archived.id, actor: 'operator' }, REPO_C).memory;
+  const exported = exportMemories({ repoRoot: REPO_C, includeArchived: true, includeDeleted: true });
+  assert.strictEqual(exported.exportVersion, 1);
+  assert.strictEqual(exported.schemaVersion, store.SCHEMA_VERSION);
+  assert.strictEqual(exported.project.rootToken, rootToken(REPO_C));
+  assert.ok(exported.generatedAt);
+  assert.strictEqual(exported.counts.deletedTombstone, 1);
+  const tombstone = exported.memories.find((m) => m.id === deleted.id);
+  assert.strictEqual(tombstone.state, 'deleted-tombstone');
+  assert.strictEqual(tombstone.body, '');
+  assert.strictEqual(tombstone.title, '');
+  assert.match(tombstone.contentHash, /^[a-f0-9]{64}$/);
 });
 
 test('memory: likely secrets are rejected before persistence', () => {
@@ -258,10 +310,18 @@ test('http/assistant: memory is GET-only, exportable, and injected visibly into 
     assert.strictEqual((await fetch(base + '/api/memory', { method: 'POST' })).status, 405);
     assert.strictEqual((await fetch(base + '/api/memory?q=assistant')).status, 403);
     assert.strictEqual((await fetch(base + '/api/memory/export?includeDeleted=1')).status, 403);
-    const list = await (await get('/api/memory?q=assistant')).json();
+    const list = await (await get('/api/memory?q=assistant&includeReasons=1&limit=50')).json();
     assert.ok(list.memories.some((m) => m.id === active.id), 'active project memory is listed');
     assert.ok(!list.memories.some((m) => m.id === saved.id), 'archived memory is hidden unless requested');
+    const activeListItem = list.memories.find((m) => m.id === active.id);
+    assert.ok(activeListItem.retrieval.score > 0, 'read API exposes retrieval scores when requested');
+    assert.ok(activeListItem.retrieval.reasons.length, 'read API exposes retrieval reasons when requested');
+    assert.strictEqual(list.retrieval.filters.state, 'active');
     const exported = await (await get('/api/memory/export?includeArchived=1')).json();
+    assert.strictEqual(exported.exportVersion, 1);
+    assert.strictEqual(exported.schemaVersion, store.SCHEMA_VERSION);
+    assert.ok(exported.generatedAt);
+    assert.ok(exported.counts.archived >= 1);
     assert.ok(exported.memories.some((m) => m.id === saved.id), 'export can include archived memory');
 
     const res = await post('/api/assistant/chat/messages', { message: 'assistant retrieval rule?', context: 'Queue: none' });
@@ -269,6 +329,14 @@ test('http/assistant: memory is GET-only, exportable, and injected visibly into 
     assert.strictEqual(res.status, 200, body.error || `HTTP ${res.status}`);
     assert.strictEqual(body.reply, 'MEMORY_OK');
     assert.ok(body.memory.used.some((m) => m.id === active.id));
+    assert.ok(body.memory.memoryIdsUsed.includes(active.id));
+    assert.ok(body.memory.memoryContextVisible.includes(active.id));
+    assert.strictEqual(body.memory.contextMeta.capChars, 4000);
+    assert.strictEqual(body.memory.contextMeta.maxMemories, 6);
+    assert.ok(body.memory.used[0].retrieval.reasons.length);
+    assert.ok(body.memory.citations.some((m) => m.id === active.id));
+    assert.ok(body.memory.contextWarnings.some((w) => /manual source/.test(w)));
+    assert.match(body.memory.citationWarning, new RegExp(active.id));
     assert.match(body.memory.context, /Assistant context rule/);
   } finally {
     await new Promise((resolve) => server.server.close(resolve));

@@ -14,6 +14,7 @@ OS decision queue (`agents/founder/outputs/decision_queue.md` in
 | D31 | Write-Enabled Command Surface (PS-003 / Gate G): governed write lifecycle, native schema, assistant adapter | 2026-07-03 | Resolved — founder-approved | [d31-write-enabled-command-surface.md](d31-write-enabled-command-surface.md) |
 | D32 | Human-rooted topology, discovery scanner, promotion to `os/topology.md` (adoption bridge) | 2026-07-06 | Resolved — founder-accepted | [d32-human-rooted-topology.md](d32-human-rooted-topology.md) |
 | D33 | Governed Memory Layer: approved sidecar memory, structured retrieval, assistant context visibility | 2026-07-07 | Resolved — founder-requested | [d33-governed-memory-layer.md](d33-governed-memory-layer.md) |
+| D34 | Memory Trust Hardening: retrieval reasons, provenance inspector, export envelope, assistant citations/warnings | 2026-07-07 | Resolved — implemented completion pass | [d34-memory-trust-hardening.md](d34-memory-trust-hardening.md) |
 
 ## Adding new decisions
 

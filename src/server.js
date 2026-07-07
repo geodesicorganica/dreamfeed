@@ -19,7 +19,16 @@ const { approvePlan, executePlan, rollbackExecution } = require('./commands/exec
 const cpStore = require('./commands/store');
 const { appendEvent, readLedger, verifyChain } = require('./commands/ledger');
 const { runAssistant, isConfigured: assistantConfigured } = require('./assistant/adapter');
-const { listMemories, retrieveMemories, exportMemories, safeMemorySummary } = require('./memory');
+const {
+  ASSISTANT_MEMORY_LIMIT,
+  ASSISTANT_CONTEXT_BODY_CAP,
+  LIST_LIMIT,
+  listMemories,
+  retrieveMemories,
+  exportMemories,
+  safeMemorySummary,
+  memoryCounts,
+} = require('./memory');
 const { REPO_ROOT, canonicalRoot, canonicalKey, rootToken } = require('./parse');
 const projectPicker = require('./projectPicker');
 
@@ -435,15 +444,32 @@ function guardSensitiveRead(req, res) {
 }
 
 function assistantMemoryContext(message, visibleContext) {
-  if (!currentRoot) return { context: '', used: [], strategy: 'structured-keyword', vectorReady: true };
+  if (!currentRoot) {
+    return { context: '', memoryContextVisible: '', used: [], memoryIdsUsed: [], citations: [], contextWarnings: [], citationWarning: null, strategy: 'structured-keyword', vectorReady: true, contextMeta: { totalChars: 0, sentChars: 0, capChars: ASSISTANT_CONTEXT_BODY_CAP, truncated: false, maxMemories: ASSISTANT_MEMORY_LIMIT } };
+  }
   const query = [message, visibleContext].filter(Boolean).join(' ');
-  const retrieved = retrieveMemories({ repoRoot: currentRoot, query, limit: 5 });
+  const retrieved = retrieveMemories({ repoRoot: currentRoot, query, limit: ASSISTANT_MEMORY_LIMIT, capChars: ASSISTANT_CONTEXT_BODY_CAP });
+  const used = retrieved.items.map((memory) => ({ ...safeMemorySummary(memory), retrieval: memory.retrieval, warnings: memory.warnings || [] }));
   return {
     context: retrieved.context,
-    used: retrieved.used.map(safeMemorySummary),
+    memoryContextVisible: retrieved.context,
+    used,
+    memoryIdsUsed: used.map((m) => m.id),
+    citations: retrieved.citations,
+    contextWarnings: retrieved.contextWarnings,
+    citationWarning: null,
     strategy: retrieved.strategy,
     vectorReady: retrieved.vectorReady,
+    contextMeta: retrieved.contextMeta,
   };
+}
+
+function memoryCitationWarning(reply, ids = []) {
+  if (!ids.length) return null;
+  const text = String(reply || '');
+  const cited = ids.filter((id) => new RegExp(`\\b${String(id).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`).test(text));
+  if (cited.length) return null;
+  return `assistant used memory context but did not cite memory ids: ${ids.join(', ')}`;
 }
 
 function handleMutation(req, res, url, body) {
@@ -518,7 +544,8 @@ function handleMutation(req, res, url, body) {
     const context = [body.context, memory.context].filter(Boolean).join('\n\n');
     return runAssistant(params.mode, body.message, context).then((out) => {
       if (out.error) { sendEngineError(res, out); return; }
-      sendJson(res, 200, { reply: out.reply, mode: params.mode, memory });
+      const responseMemory = { ...memory, citationWarning: memoryCitationWarning(out.reply, memory.memoryIdsUsed) };
+      sendJson(res, 200, { reply: out.reply, mode: params.mode, memory: responseMemory });
     });
   }
   if (m.pattern === '/api/work/tasks/transition') {
@@ -686,15 +713,27 @@ const server = http.createServer((req, res) => {
     try {
       const query = params.get('q') || '';
       const kind = params.get('kind') || undefined;
+      const scope = params.get('scope') || undefined;
+      const tag = params.get('tag') || undefined;
+      const includeReasons = params.get('includeReasons') === '1';
       const includeArchived = params.get('includeArchived') === '1';
-      const includeDeleted = params.get('includeDeleted') === '1';
       const stateFilter = params.get('state') || undefined;
-      const memories = query
-        ? retrieveMemories({ repoRoot: currentRoot, query, kind, limit: parseInt(params.get('limit') || '50', 10) || 50 }).used
-        : listMemories({ repoRoot: currentRoot, state: stateFilter || (includeArchived ? undefined : 'active'), kind, includeDeleted });
+      const includeDeleted = params.get('includeDeleted') === '1' || stateFilter === 'deleted-tombstone';
+      const limit = parseInt(params.get('limit') || String(LIST_LIMIT), 10) || LIST_LIMIT;
+      const state = stateFilter || (includeArchived ? null : 'active');
+      const retrieved = retrieveMemories({ repoRoot: currentRoot, query, kind, state, scope, tag, limit, includeDeleted });
+      const memories = includeReasons ? retrieved.items : retrieved.used;
+      const visibleRecords = listMemories({ repoRoot: currentRoot, includeDeleted: true });
       sendJson(res, 200, {
         rootToken: currentRoot ? rootToken(currentRoot) : null,
-        retrieval: { strategy: 'structured-keyword', vectorReady: true },
+        retrieval: {
+          strategy: retrieved.strategy,
+          vectorReady: retrieved.vectorReady,
+          limit: retrieved.contextMeta.maxMemories,
+          includeReasons,
+          filters: { q: query, kind: kind || '', state: stateFilter || (includeArchived ? '' : 'active'), scope: scope || '', tag: tag || '' },
+        },
+        counts: memoryCounts(visibleRecords),
         memories,
       });
     } catch (err) { sendJson(res, 500, { fatal: String(err.message || err) }); }
@@ -703,7 +742,11 @@ const server = http.createServer((req, res) => {
   if (url === '/api/memory/export') {
     if (!guardSensitiveRead(req, res)) return;
     try {
-      sendJson(res, 200, exportMemories({ repoRoot: currentRoot, includeDeleted: params.get('includeDeleted') === '1' }));
+      sendJson(res, 200, exportMemories({
+        repoRoot: currentRoot,
+        includeDeleted: params.get('includeDeleted') === '1',
+        includeArchived: params.get('includeArchived') !== '0',
+      }));
     } catch (err) { sendJson(res, 500, { fatal: String(err.message || err) }); }
     return;
   }

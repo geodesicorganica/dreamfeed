@@ -14,7 +14,7 @@ const APP_ROOT = path.resolve(__dirname, '..', '..');
 const CONFIG_FILE = path.join(APP_ROOT, 'assistant-config.json');
 const TIMEOUT_MS = 60000;
 const MAX_MESSAGE = 8000;
-const MAX_CONTEXT = 4000;
+const MAX_CONTEXT = 12000;
 
 const MODES = Object.freeze({
   'chief-of-staff': 'You are the Dreamfeed Chief of Staff. You help a founder run their daily execution queue. You may PROPOSE work: suggest task transitions, priorities, delegations, and drafts of intents — but you never execute anything; every action goes through the operator\'s explicit approval in the cockpit. Be terse, concrete, and refer to tasks by their ids.',

@@ -70,6 +70,15 @@ test('Gate G surfaces: workstream navigator, queue lens, approval dialog, assist
   assert.match(app, /function renderWorkNav\(\)/, 'workstream navigator renders Goals and Operations trees');
   assert.match(app, /function renderAssistant\(/, 'assistant dock exists as a right-region mode');
   assert.match(app, /function renderMemory\(\)/, 'governed memory lens exists');
+  assert.match(app, /id="memoryScope"/, 'memory lens exposes scope filtering');
+  assert.match(app, /id="memoryTag"/, 'memory lens exposes tag filtering');
+  assert.match(app, /deleted-tombstone/, 'memory lens exposes tombstone inspection state');
+  assert.match(app, /retrieval: \$\{esc\(memoryReasonLine\(m\)\)\}/, 'memory cards show retrieval reasons');
+  assert.match(app, /function renderMemoryOverview\(/, 'memory provenance inspector exists');
+  assert.match(app, /Memory provenance inspector/, 'memory inspector names provenance explicitly');
+  assert.match(app, /function memoryEmptyState\(/, 'memory lens has explicit empty and error states');
+  assert.match(app, /function memoryLifecycleTrace\(/, 'memory inspector derives lifecycle and ledger trace links');
+  assert.match(app, /dreamfeed-memory-export-v/, 'memory export uses a deterministic JSON filename');
   assert.match(app, /data-right-mode="assistant"/, 'inspector ⇄ assistant mode toggle exists');
   for (const mode of ['chief-of-staff', 'translator', 'chat']) {
     assert.ok(app.includes(`'${mode}'`), `assistant mode present: ${mode}`);
@@ -90,6 +99,11 @@ test('Gate G surfaces: workstream navigator, queue lens, approval dialog, assist
   assert.match(app, /data-memory-propose/, 'memory proposals start from the Memory lens form');
   assert.match(app, /data-memory-from-assistant/, 'assistant messages can be proposed as memory without auto-saving');
   assert.match(app, /Memory context sent/, 'assistant dock shows the exact memory context sent');
+  assert.match(app, /memoryContextVisible/, 'assistant stores the server-visible memory context');
+  assert.match(app, /memoryIdsUsed/, 'assistant shows exact memory ids used');
+  assert.match(app, /contextMeta/, 'assistant exposes memory context cap metadata');
+  assert.match(app, /memoryCitations/, 'assistant exposes memory citation metadata');
+  assert.match(app, /memoryCitationWarning/, 'assistant exposes missing-citation warnings');
 });
 
 test('selection is derived over existing state and routes evidence into the shared inspector', () => {

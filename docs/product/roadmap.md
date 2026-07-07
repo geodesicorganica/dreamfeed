@@ -42,13 +42,14 @@ representing Brief B gate 5b as accepted or the product as externally validated.
 
 ### Phase 1.3 — IDE Substitution (non-technical founder surface)
 
-> **Status 2026-07-03:** first slice **in progress under D31 (PS-003 / Gate G)**
+> **Status 2026-07-07:** first slice **in progress under D31 (PS-003 / Gate G)**
 > in the standalone repo — governed write lifecycle, Dreamfeed-native
 > Goals/Operations schema, daily execution queue, approval dialog, assistant
-> dock, and safe named git actions are implemented. Proposed file edits,
-> branch-management UI, deploy triggers, and free-form terminal remain gated
-> (D33+ candidates — D32 landed 2026-07-06 as the topology/discovery/promotion
-> adoption bridge instead; see `docs/decisions/d32-human-rooted-topology.md`).
+> dock, safe named git actions, governed memory, and D34 memory trust hardening
+> are implemented. Proposed file edits, branch-management UI, deploy triggers,
+> and free-form terminal remain gated (D35+ candidates — D32 landed 2026-07-06
+> as the topology/discovery/promotion adoption bridge; D33/D34 landed governed
+> memory and memory inspection hardening).
 Replaces the VSCode + Claude Code workflow for non-technical founders.
 The command center gains file editing, diff review, branch management,
 commit/build/test visibility, deploy triggers, and terminal access —

@@ -23,7 +23,7 @@ let ledgerData = null;
 let memoryData = null;
 let pendingPlan = null; // plan awaiting the approval dialog
 // Assistant dock state (in-memory transcripts only; never persisted).
-const assistant = { mode: 'chief-of-staff', busy: false, memoryContext: '', memoryUsed: [], transcripts: { 'chief-of-staff': [], 'translator': [], 'chat': [] } };
+const assistant = { mode: 'chief-of-staff', busy: false, memoryContext: '', memoryUsed: [], memoryIdsUsed: [], memoryMeta: null, memoryCitations: [], memoryWarnings: [], memoryCitationWarning: null, transcripts: { 'chief-of-staff': [], 'translator': [], 'chat': [] } };
 const hasDom = typeof window !== 'undefined' && typeof document !== 'undefined';
 const view = {
   tab: 'daily', filterText: '', filterStatus: '', collapsed: {}, graphSel: null,
@@ -35,7 +35,7 @@ const view = {
   rightMode: 'inspector', // 'inspector' | 'assistant' — the region-4 mode toggle
   workScope: null,        // { streamType, containerId, group? } from the navigator
   navCollapsed: {},
-  memoryQuery: '', memoryKind: '', memoryState: 'active', memoryDraft: null,
+  memoryQuery: '', memoryKind: '', memoryState: 'active', memoryScope: '', memoryTag: '', memoryDraft: null,
   // Wide layouts keep all five regions visible. Narrow layouts start with the
   // inspector collapsed and expose it through the command-bar drawer control.
   inspectorOpen: hasDom ? window.innerWidth > 940 : true, bottomOpen: true, sidebarOpen: false, density: 'comfortable', feedback: [],
@@ -274,7 +274,41 @@ function record(id, type, title, source, fields = {}) {
     timestamp: fields.timestamp || 'not yet structured', provenance: fields.provenance || 'Derived',
     relationships: fields.relationships || [], nextAction: fields.nextAction || 'Inspect source',
     sourcePath: source ? source.path : fields.sourcePath || null, sourceLocator: source ? source.locator : '',
-    overview: fields.overview || [],
+    overview: fields.overview || [], memory: fields.memory || null,
+  });
+}
+function memoryLifecycleTrace(memoryId) {
+  const plans = (lifecycleData?.plans || []).filter((p) =>
+    p.preview?.memory?.id === memoryId || p.preview?.prior?.id === memoryId || (p.ops || []).some((op) => op.memoryId === memoryId));
+  const executions = (lifecycleData?.executions || []).filter((x) =>
+    (x.results || []).some((r) => r.memory?.id === memoryId) || plans.some((p) => p.id === x.planId));
+  const events = (ledgerData?.events || []).filter((e) => e.memoryId === memoryId || executions.some((x) => x.id === e.executionId) || plans.some((p) => p.id === e.planId));
+  return { plans, executions, events };
+}
+function recordMemory(memory) {
+  const source = memory.source || {};
+  const trace = memoryLifecycleTrace(memory.id);
+  const sourcePath = source.type === 'source' && source.ref ? source.ref : null;
+  const sourceLabel = source.type ? `${source.type}${source.ref ? `:${source.ref}` : ''}` : 'manual';
+  return record(`memory:${memory.id}`, 'Memory', memory.title || '(deleted memory)', sourcePath ? { path: sourcePath, locator: 'memory source ref' } : null, {
+    state: memory.state,
+    owner: memory.approvedBy || memory.deletedBy || 'operator',
+    timestamp: memory.updatedAt || memory.createdAt,
+    provenance: 'Control-plane sidecar',
+    sourceAuthority: 'approved governed memory; source files and ledger win on conflict',
+    relationships: [
+      `source ${sourceLabel}`,
+      ...trace.plans.map((p) => `plan ${p.id} · ${p.opName} · ${p.status}`),
+      ...trace.executions.map((x) => `execution ${x.id} · ${x.status}`),
+      ...trace.events.slice(-5).map((e) => `ledger #${e.seq} · ${e.type}`),
+    ],
+    nextAction: memory.state === 'deleted-tombstone' ? 'Inspect tombstone audit metadata; content cannot be restored from memory.' : 'Inspect provenance before using this memory as context.',
+    memory,
+    overview: [
+      ['ID', memory.id], ['Kind', memory.kind], ['Scope', memoryScopeLabel(memory)], ['Confidence', memory.confidence || 'medium'],
+      ['Source', sourceLabel], ['Tags', (memory.tags || []).join(', ') || 'none'], ['Version', String(memory.version || 1)],
+      ['Hash', String(memory.contentHash || '').slice(0, 16)], ['Warnings', (memory.warnings || []).join(' | ') || 'none'],
+    ],
   });
 }
 function recordSourceFile(s) {
@@ -345,6 +379,7 @@ function buildObjectRegistry() {
     state: fieldValue(r.status), owner: fieldValue(r.producing_agent), timestamp: r.freshness?.nys ? 'not yet structured' : r.freshness.value.referenceDate, provenance: allTiers(r), nextAction: 'Open artifact evidence', overview: [['Schema family', fieldValue(r.schema_family)], ['Lifecycle', fieldValue(r.lifecycle_stage)], ['Review need', fieldValue(r.review_need)]],
   });
   state.sources.forEach(recordSourceFile);
+  (memoryData?.memories || []).forEach(recordMemory);
 }
 
 function selectObject(id, options = {}) {
@@ -663,34 +698,60 @@ function memoryScopeLabel(m) {
   if (!m || !m.scope) return 'scope unknown';
   return m.scope.type === 'project' ? 'project' : m.scope.type;
 }
+function memoryReasonLine(memory) {
+  const r = memory.retrieval || {};
+  const reasons = (r.reasons || []).slice(0, 6).join(', ') || 'not ranked';
+  const fields = (r.matchedFields || []).join(', ') || 'none';
+  return `score ${r.score ?? 'n/a'} · fields ${fields} · ${reasons}`;
+}
+function memoryCountsText(counts = {}) {
+  return `active ${counts.active || 0} · archived ${counts.archived || 0} · tombstones ${counts.deletedTombstone || 0} · project ${counts.project || 0} · operator ${counts.operator || 0} · product ${counts.product || 0}`;
+}
+function memoryEmptyState(memories, counts) {
+  if (memoryData?.error) return `<article class="card error-card"><div class="card-title">Memory unavailable</div><p>${esc(memoryData.error)}</p></article>`;
+  if (state?.configured === false) return '<article class="card warn-card"><div class="card-title">No project selected</div><p class="odim">Select a project before reading governed project memory.</p></article>';
+  if ((counts.total || 0) === 0) return '<article class="card"><div class="card-title">No governed memories</div><p class="odim">Create memory proposals from assistant text, ledger events, source evidence, or manual operator text. Approval is required before memory becomes active.</p></article>';
+  if (!memories.length && view.memoryState === 'active' && ((counts.archived || 0) || (counts.deletedTombstone || 0))) return '<article class="card"><div class="card-title">No active memories</div><p class="odim">Archived or deleted-tombstone records exist. Change the state filter to inspect them.</p></article>';
+  if (!memories.length) return '<article class="card"><div class="card-title">No matches</div><p class="odim">No memory records match the current query, kind, state, scope, and tag filters.</p></article>';
+  return '';
+}
 function renderMemory() {
   const memories = memoryData?.memories || [];
   const draft = view.memoryDraft || {};
+  const counts = memoryData?.counts || {};
+  const filters = memoryData?.retrieval?.filters || {};
   const cards = memories.length ? memories.map((m) => {
     const source = m.source || {};
     const sourceText = source.type ? `${source.type}${source.ref ? `:${source.ref}` : ''}` : 'manual';
-    return `<article class="card memory-card" data-memory-id="${esc(m.id)}">
+    return `<article class="card click memory-card" data-object-id="memory:${esc(m.id)}" data-memory-id="${esc(m.id)}">
     <div class="card-head"><div class="card-title">${esc(m.title || '(deleted memory)')}</div>${pill(m.state, m.state === 'active' ? 'green' : m.state === 'archived' ? 'grey' : 'red')}</div>
     <div class="src">${esc(m.id)} · ${esc(m.kind)} · ${esc(memoryScopeLabel(m))} · ${esc(m.confidence || 'medium')}</div>
     <p>${esc(m.body || 'Content removed; tombstone retained for audit.')}</p>
     <div class="src">source: ${esc(sourceText)} · tags: ${esc((m.tags || []).join(', ') || 'none')} · hash ${esc(String(m.contentHash || '').slice(0, 12))}</div>
+    <div class="src">retrieval: ${esc(memoryReasonLine(m))}</div>
+    ${(m.warnings || []).length ? `<div class="src">warnings: ${esc(m.warnings.join(' | '))}</div>` : ''}
+    <div class="src">updated: ${esc(m.updatedAt || 'n/y/s')} · version ${esc(m.version || 1)}</div>
     <div class="queue-actions">
-      <button type="button" class="command-button task-action" data-memory-edit="${esc(m.id)}">Edit…</button>
+      ${m.state !== 'deleted-tombstone' ? `<button type="button" class="command-button task-action" data-memory-edit="${esc(m.id)}">Edit…</button>` : ''}
       ${m.state === 'active' ? `<button type="button" class="command-button task-action" data-memory-archive="${esc(m.id)}">Archive…</button>` : ''}
-      ${m.state !== 'deleted-tombstone' ? `<button type="button" class="command-button task-action" data-memory-delete="${esc(m.id)}">Delete…</button>` : ''}
+      ${m.state !== 'deleted-tombstone' ? `<button type="button" class="command-button task-action" data-memory-delete="${esc(m.id)}">Hard delete…</button>` : ''}
     </div>
   </article>`;
-  }).join('') : '<p class="odim">No governed memories match this view.</p>';
+  }).join('') : memoryEmptyState(memories, counts);
   return `<div class="banner">Memory lens — approved contextual aids only. Source files and the ledger remain authoritative; memory never self-writes from assistant chat.</div>
     <section class="owidget">
-      <div class="owidget-head"><h3>Search and filters</h3><span>${esc(memoryData?.retrieval?.strategy || 'structured-keyword')}</span></div>
+      <div class="owidget-head"><h3>Search and filters</h3><span>${esc(memoryData?.retrieval?.strategy || 'structured-keyword')} · ${esc(memoryCountsText(counts))}</span></div>
       <div class="assistant-input">
         <input id="memoryQuery" type="search" value="${esc(view.memoryQuery)}" placeholder="Search approved memories" autocomplete="off" />
         <select id="memoryKind"><option value="">All kinds</option>${['semantic', 'episodic', 'procedural', 'preference'].map((k) => `<option value="${k}"${view.memoryKind === k ? ' selected' : ''}>${k}</option>`).join('')}</select>
-        <select id="memoryState"><option value="active"${view.memoryState === 'active' ? ' selected' : ''}>active</option><option value="archived"${view.memoryState === 'archived' ? ' selected' : ''}>archived</option><option value=""${view.memoryState === '' ? ' selected' : ''}>active + archived</option></select>
+        <select id="memoryState"><option value="active"${view.memoryState === 'active' ? ' selected' : ''}>active</option><option value="archived"${view.memoryState === 'archived' ? ' selected' : ''}>archived</option><option value=""${view.memoryState === '' ? ' selected' : ''}>active + archived</option><option value="deleted-tombstone"${view.memoryState === 'deleted-tombstone' ? ' selected' : ''}>tombstones</option></select>
+        <select id="memoryScope"><option value="">All scopes</option>${['project', 'operator', 'product'].map((s) => `<option value="${s}"${view.memoryScope === s ? ' selected' : ''}>${s}</option>`).join('')}</select>
+        <input id="memoryTag" type="search" value="${esc(view.memoryTag || '')}" placeholder="tag" autocomplete="off" />
         <button type="button" class="command-button" data-memory-refresh>Apply</button>
         <button type="button" class="command-button" data-memory-export>Export</button>
       </div>
+      <p class="odim">Applied filters: q=${esc(filters.q || '∅')} · kind=${esc(filters.kind || 'all')} · state=${esc(filters.state || 'active + archived')} · scope=${esc(filters.scope || 'all')} · tag=${esc(filters.tag || 'all')}</p>
+      <p class="odim">Export is a JSON evidence package for governed memory records, not source truth and not an import/write action.</p>
     </section>
     <section class="owidget">
       <div class="owidget-head"><h3>${draft.memoryId ? `Edit ${esc(draft.memoryId)}` : 'Propose memory'}</h3><span>approval required</span></div>
@@ -906,14 +967,24 @@ async function refreshMemoryData() {
   const qs = new URLSearchParams();
   if (view.memoryQuery) qs.set('q', view.memoryQuery);
   if (view.memoryKind) qs.set('kind', view.memoryKind);
-  if (view.memoryState) qs.set('state', view.memoryState);
+  if (view.memoryScope) qs.set('scope', view.memoryScope);
+  if (view.memoryTag) qs.set('tag', view.memoryTag);
+  qs.set('includeReasons', '1');
+  qs.set('limit', '50');
+  if (view.memoryState) {
+    qs.set('state', view.memoryState);
+    if (view.memoryState === 'deleted-tombstone') qs.set('includeDeleted', '1');
+  }
   else qs.set('includeArchived', '1');
   try {
     const res = await guardedFetch(`/api/memory?${qs.toString()}`);
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      throw new Error(data.error || `HTTP ${res.status}`);
+    }
     memoryData = await res.json();
   }
-  catch { memoryData = { memories: [], retrieval: { strategy: 'structured-keyword' } }; }
+  catch (err) { memoryData = { error: String(err.message || err), memories: [], retrieval: { strategy: 'structured-keyword' }, counts: {} }; }
 }
 
 function memoryDraftFromForm() {
@@ -970,16 +1041,25 @@ function setMemoryDraft(draft) {
 }
 
 async function exportMemoryData() {
-  const res = await guardedFetch('/api/memory/export?includeDeleted=1');
+  const res = await guardedFetch('/api/memory/export?includeArchived=1&includeDeleted=1');
   if (!res.ok) {
     feedback(`Memory export refused (${res.status})`);
     renderBottomPanel();
     return;
   }
-  const blob = await res.blob();
+  const data = await res.json();
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
   const url = URL.createObjectURL(blob);
-  window.open(url, '_blank', 'noopener');
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = `dreamfeed-memory-export-v${data.exportVersion || 1}-${String(data.generatedAt || new Date().toISOString()).replace(/[:.]/g, '-')}.json`;
+  link.rel = 'noopener';
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
   setTimeout(() => URL.revokeObjectURL(url), 60000);
+  feedback(`Memory export ready: ${data.counts?.total || 0} records · generated ${data.generatedAt || 'now'} · includes active/archived/tombstones`);
+  renderBottomPanel();
 }
 
 function pendingApprovals() {
@@ -1058,6 +1138,22 @@ function assistantContext() {
   return [line('Today', queueData.sections.today), line('Rolled over', queueData.sections.rolledOver)].join('\n');
 }
 
+function assistantMemorySummary() {
+  const used = assistant.memoryUsed || [];
+  const meta = assistant.memoryMeta || {};
+  if (!assistant.memoryContext && !used.length) return '';
+  const rows = used.map((m) => {
+    const r = m.retrieval || {};
+    const reasons = (r.reasons || []).slice(0, 4).join(', ') || 'not ranked';
+    return `<div class="trace-row"><span>${esc(m.id)}</span><b>${esc(m.title || '(untitled)')} · score ${esc(r.score ?? 'n/a')} · ${esc(reasons)}</b></div>`;
+  }).join('');
+  const citations = (assistant.memoryCitations || []).map((c) => `<div class="trace-row"><span>citation</span><b>${esc(c.id)} · ${esc(c.title || '(untitled)')} · hash ${esc(String(c.contentHash || '').slice(0, 12))}</b></div>`).join('');
+  const warnings = [...(assistant.memoryWarnings || []), assistant.memoryCitationWarning].filter(Boolean)
+    .map((w) => `<div class="trace-row"><span>warning</span><b>${esc(w)}</b></div>`).join('');
+  const cap = `<div class="trace-row"><span>cap</span><b>${esc(meta.sentChars ?? 0)}/${esc(meta.capChars ?? 4000)} body chars${meta.truncated ? ' · truncated' : ''}</b></div>`;
+  return `<details class="assistant-ctx" open><summary>Memory context sent (${esc((assistant.memoryIdsUsed || used.map((m) => m.id)).join(', ') || 'none')})</summary>${rows}${citations}${warnings}${cap}<pre>${esc(assistant.memoryContext)}</pre></details>`;
+}
+
 function renderAssistant(inspector) {
   const configured = !!(project && project.assistant && project.assistant.configured);
   const transcript = assistant.transcripts[assistant.mode];
@@ -1075,7 +1171,7 @@ function renderAssistant(inspector) {
       <div class="assistant-modes">${modeTabs}</div>
       <div class="assistant-transcript" id="assistantTranscript">${body}${assistant.busy ? '<div class="assistant-msg odim">thinking…</div>' : ''}</div>
       ${ctx ? `<details class="assistant-ctx"><summary>Context sent with each message</summary><pre>${esc(ctx)}</pre></details>` : ''}
-      ${assistant.memoryContext ? `<details class="assistant-ctx" open><summary>Memory context sent (${assistant.memoryUsed.length})</summary><pre>${esc(assistant.memoryContext)}</pre></details>` : ''}
+      ${assistantMemorySummary()}
       <div class="assistant-input">
         <textarea id="assistantText" rows="3" placeholder="${configured ? 'Message the assistant…' : 'Configure the assistant first'}" ${configured && !assistant.busy ? '' : 'disabled'}></textarea>
         <button type="button" class="command-button primary" id="assistantSend" ${configured && !assistant.busy ? '' : 'disabled'}>Send</button>
@@ -1092,8 +1188,13 @@ function renderAssistant(inspector) {
     try {
       const res = await postMutation(`/api/assistant/${assistant.mode}/messages`, { message, context: assistantContext() });
       const data = await res.json().catch(() => ({}));
-      assistant.memoryContext = data.memory?.context || '';
+      assistant.memoryContext = data.memory?.memoryContextVisible || data.memory?.context || '';
       assistant.memoryUsed = data.memory?.used || [];
+      assistant.memoryIdsUsed = data.memory?.memoryIdsUsed || assistant.memoryUsed.map((m) => m.id);
+      assistant.memoryMeta = data.memory?.contextMeta || null;
+      assistant.memoryCitations = data.memory?.citations || [];
+      assistant.memoryWarnings = data.memory?.contextWarnings || [];
+      assistant.memoryCitationWarning = data.memory?.citationWarning || null;
       assistant.transcripts[assistant.mode].push({ role: 'assistant', text: res.ok ? data.reply : `⚠ ${data.error || `HTTP ${res.status}`}` });
     } catch (err) {
       assistant.transcripts[assistant.mode].push({ role: 'assistant', text: `⚠ ${String(err)}` });
@@ -1111,6 +1212,45 @@ function renderAssistant(inspector) {
   }));
 }
 
+function renderMemoryOverview(item) {
+  const memory = item.memory;
+  const trace = memoryLifecycleTrace(memory.id);
+  const source = memory.source || {};
+  const sourceText = source.type ? `${source.type}${source.ref ? `:${source.ref}` : ''}` : 'manual';
+  const retrieval = memory.retrieval || {};
+  const warnings = memory.warnings || [];
+  const tombstone = memory.state === 'deleted-tombstone'
+    ? `<div class="detail-sec">Tombstone audit</div><dl class="inspector-kv"><dt>Deleted by</dt><dd>${esc(memory.deletedBy || 'operator')}</dd><dt>Deleted at</dt><dd>${esc(memory.deletedAt || memory.updatedAt || 'n/y/s')}</dd><dt>Prior hash</dt><dd>${esc(memory.contentHash || 'n/y/s')}</dd><dt>Content</dt><dd>Removed from memory; tombstone retained for audit only.</dd></dl>`
+    : '';
+  const lifecycle = `<div class="detail-sec">Lifecycle trace</div><dl class="inspector-kv"><dt>Plans</dt><dd>${esc(trace.plans.map((p) => `${p.id} ${p.opName} ${p.status}`).join(' | ') || 'none in loaded sidecar')}</dd><dt>Executions</dt><dd>${esc(trace.executions.map((x) => `${x.id} ${x.status}`).join(' | ') || 'none in loaded sidecar')}</dd><dt>Ledger</dt><dd>${esc(trace.events.slice(-6).map((e) => `#${e.seq} ${e.type}`).join(' | ') || 'none in loaded page')}</dd></dl>`;
+  return `<div class="banner">Memory provenance inspector — sidecar context only. Source files and ledger records win on conflict.</div>
+    ${warnings.length ? `<div class="banner banner-warn">${esc(warnings.join(' | '))}</div>` : ''}
+    <dl class="inspector-kv">
+      <dt>ID</dt><dd>${esc(memory.id)}</dd>
+      <dt>State</dt><dd>${esc(memory.state)}</dd>
+      <dt>Kind</dt><dd>${esc(memory.kind)}</dd>
+      <dt>Scope</dt><dd>${esc(memoryScopeLabel(memory))}</dd>
+      <dt>Confidence</dt><dd>${esc(memory.confidence || 'medium')}</dd>
+      <dt>Source</dt><dd>${esc(sourceText)}</dd>
+      <dt>Tags</dt><dd>${esc((memory.tags || []).join(', ') || 'none')}</dd>
+      <dt>Created</dt><dd>${esc(memory.createdAt || 'n/y/s')}</dd>
+      <dt>Updated</dt><dd>${esc(memory.updatedAt || 'n/y/s')}</dd>
+      <dt>Approved by</dt><dd>${esc(memory.approvedBy || 'operator')}</dd>
+      <dt>Version</dt><dd>${esc(memory.version || 1)}</dd>
+      <dt>Content hash</dt><dd>${esc(memory.contentHash || 'n/y/s')}</dd>
+      <dt>Retrieval</dt><dd>${esc(`score ${retrieval.score ?? 'n/a'} · fields ${(retrieval.matchedFields || []).join(', ') || 'none'} · ${(retrieval.reasons || []).join(', ') || 'not ranked'}`)}</dd>
+    </dl>
+    ${lifecycle}
+    ${tombstone}`;
+}
+
+function memoryInspectorActions(item) {
+  const memory = item.memory;
+  const sourceAction = item.sourcePath ? `<button type="button" class="inspector-action" data-evidence-path="${esc(item.sourcePath)}">Load read-only source → ${esc(item.sourcePath)}</button>` : '';
+  if (!memory || memory.state === 'deleted-tombstone') return '<p class="odim">Deleted tombstones are audit-only; no edit or archive action is available.</p>';
+  return `${sourceAction}<button type="button" class="inspector-action" data-memory-edit="${esc(memory.id)}">Propose memory update…</button>${memory.state === 'active' ? `<button type="button" class="inspector-action" data-memory-archive="${esc(memory.id)}">Archive through approval…</button>` : ''}<button type="button" class="inspector-action" data-memory-delete="${esc(memory.id)}">Hard delete through founder approval…</button>`;
+}
+
 function renderInspector() {
   const inspector = $('#inspector'); if (!inspector) return;
   if (view.rightMode === 'assistant') { renderAssistant(inspector); return; }
@@ -1122,11 +1262,15 @@ function renderInspector() {
     wireModeTabs();
     return;
   }
-  const overview = `<dl class="inspector-kv"><dt>Type</dt><dd>${esc(item.type)}</dd><dt>State</dt><dd>${esc(item.state)}</dd><dt>Owner / authority</dt><dd>${esc(item.owner)} · ${esc(item.sourceAuthority)}</dd><dt>Timestamp</dt><dd>${esc(item.timestamp)}</dd><dt>Provenance</dt><dd>${esc(item.provenance)}</dd>${item.overview.map(([k, v]) => `<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join('')}</dl>${item.sourcePath ? '' : '<p class="odim">No directly viewable source file is available for this derived object.</p>'}`;
+  const overview = item.memory
+    ? renderMemoryOverview(item)
+    : `<dl class="inspector-kv"><dt>Type</dt><dd>${esc(item.type)}</dd><dt>State</dt><dd>${esc(item.state)}</dd><dt>Owner / authority</dt><dd>${esc(item.owner)} · ${esc(item.sourceAuthority)}</dd><dt>Timestamp</dt><dd>${esc(item.timestamp)}</dd><dt>Provenance</dt><dd>${esc(item.provenance)}</dd>${item.overview.map(([k, v]) => `<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join('')}</dl>${item.sourcePath ? '' : '<p class="odim">No directly viewable source file is available for this derived object.</p>'}`;
   const evidence = renderEvidenceView(item);
   const relationships = item.relationships.length ? `<ul class="detail-list">${item.relationships.map((r) => `<li>${esc(r)}</li>`).join('')}</ul>` : '<p class="odim">No source-backed relationship is structured for this selection.</p>';
   const content = view.inspectorTab === 'evidence' ? evidence : view.inspectorTab === 'relationships' ? relationships : overview;
-  const sourceAction = item.sourcePath ? `<button type="button" class="inspector-action" data-evidence-path="${esc(item.sourcePath)}">Load read-only source → ${esc(item.sourcePath)}</button><button type="button" class="inspector-action" data-memory-from-source="${esc(item.id)}">Propose memory from source…</button>` : '';
+  const sourceAction = item.memory
+    ? memoryInspectorActions(item)
+    : item.sourcePath ? `<button type="button" class="inspector-action" data-evidence-path="${esc(item.sourcePath)}">Load read-only source → ${esc(item.sourcePath)}</button><button type="button" class="inspector-action" data-memory-from-source="${esc(item.id)}">Propose memory from source…</button>` : '';
   inspector.innerHTML = `${modeTabs}<div class="inspector-head"><div class="region-label">Selected object</div><h2>${esc(item.title)}</h2><div class="inspector-id">${esc(item.id)}</div></div><div class="inspector-tabs"><button type="button" data-inspector-tab="overview" class="${view.inspectorTab === 'overview' ? 'active' : ''}">Overview</button><button type="button" data-inspector-tab="evidence" class="${view.inspectorTab === 'evidence' ? 'active' : ''}">Evidence</button><button type="button" data-inspector-tab="relationships" class="${view.inspectorTab === 'relationships' ? 'active' : ''}">Relationships</button></div><div class="inspector-body">${content}${sourceAction}<div class="detail-sec">Read-only action</div><p class="odim">${esc(item.nextAction)}</p></div>`;
   inspector.querySelectorAll('[data-inspector-tab]').forEach((button) => button.addEventListener('click', () => { view.inspectorTab = button.dataset.inspectorTab; renderInspector(); }));
   inspector.querySelectorAll('[data-evidence-path]').forEach((button) => button.addEventListener('click', () => openEvidence(button.dataset.evidencePath, item.id)));
@@ -1135,6 +1279,9 @@ function renderInspector() {
     if (!srcItem) return;
     setMemoryDraft({ kind: 'semantic', title: srcItem.title, body: `${srcItem.title}\n${srcItem.nextAction || ''}`.trim(), tags: ['source'], sourceType: 'source', sourceRef: srcItem.sourcePath || srcItem.id });
   }));
+  inspector.querySelectorAll('[data-memory-edit]').forEach((button) => button.addEventListener('click', () => editMemory(button.dataset.memoryEdit)));
+  inspector.querySelectorAll('[data-memory-archive]').forEach((button) => button.addEventListener('click', () => runMemoryStateIntent('memory-archive', button.dataset.memoryArchive)));
+  inspector.querySelectorAll('[data-memory-delete]').forEach((button) => button.addEventListener('click', () => runMemoryStateIntent('memory-delete', button.dataset.memoryDelete)));
   inspector.querySelectorAll('[data-evidence-mode]').forEach((button) => button.addEventListener('click', () => { view.evidenceMode = button.dataset.evidenceMode; renderInspector(); }));
   wireModeTabs();
 }
@@ -1303,7 +1450,10 @@ function wireDynamic() {
     view.memoryQuery = $('#memoryQuery')?.value.trim() || '';
     view.memoryKind = $('#memoryKind')?.value || '';
     view.memoryState = $('#memoryState')?.value || '';
+    view.memoryScope = $('#memoryScope')?.value || '';
+    view.memoryTag = $('#memoryTag')?.value.trim().toLowerCase() || '';
     await refreshMemoryData();
+    buildObjectRegistry();
     feedback('Memory view refreshed');
     render();
   }));

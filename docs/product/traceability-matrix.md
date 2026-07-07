@@ -53,3 +53,4 @@ The matrix is updated with each vertical slice.
 | T31 | Gate F legacy language reconciled to D23 | implemented | Gate F, D23 | Gate F, PS-002, roadmap, strategy, README, CLAUDE updates |
 | T32 | External gates: design partners, legal entity, pricing, trademark, payments, public launch, Guild moderation remain blocked | deferred with explicit gate | Roadmap, D26b, scope | Gate register and disabled features |
 | T33 | Governed memory: approved contextual aids with scoped retrieval, export, tombstones, and visible assistant context | implemented | D33 | `src/memory.js`, sidecar schema v2, lifecycle policy defaults; `test/memory.test.js`, `test/ui-contract.test.js` |
+| T34 | Memory trust hardening: retrieval reasons, state/scope/tag filters, provenance inspector, stable export envelope, capped assistant context citations/warnings | implemented | D34 | `src/memory.js`, `src/server.js`, `public/app.js`; `test/memory.test.js`, `test/ui-contract.test.js` |

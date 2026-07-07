@@ -50,6 +50,9 @@ Before any commit, confirm:
 - [ ] Ledger: every lifecycle transition appends an event; chain verifies; no
       event mutation.
 - [ ] Policy: new operations carry an explicit policy class; unknown → denied.
+- [ ] Memory: reads/exports stay guarded GET-only; retrieval metadata is
+      read-derived; assistant context remains capped, visible, scoped, and
+      non-authoritative; citation/conflict warnings are operator-visible.
 - [ ] Six-object model: Gate C semantics unchanged.
 - [ ] Three-tier provenance: Canonical / Derived / Candidate labels preserved
       (native schema included).
