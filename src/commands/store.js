@@ -7,7 +7,7 @@
 const fs = require('fs');
 const path = require('path');
 
-const SCHEMA_VERSION = 1;
+const SCHEMA_VERSION = 2;
 const APP_ROOT = path.resolve(__dirname, '..', '..');
 
 // Test isolation: suites point DREAMFEED_STATE_DIR at a temp dir so runs never
@@ -18,15 +18,36 @@ function stateDir() {
 function recordsFile() { return path.join(stateDir(), 'records.json'); }
 
 function emptyRecords() {
-  return { schemaVersion: SCHEMA_VERSION, counter: 0, intents: {}, plans: {}, approvals: {}, executions: {} };
+  return { schemaVersion: SCHEMA_VERSION, counter: 0, intents: {}, plans: {}, approvals: {}, executions: {}, memories: {} };
+}
+
+function migrate(rec) {
+  if (!rec || typeof rec !== 'object') throw new Error('unsupported records schemaVersion: missing');
+  if (rec.schemaVersion === SCHEMA_VERSION) {
+    return { ...emptyRecords(), ...rec, memories: rec.memories || {} };
+  }
+  if (rec.schemaVersion === 1) {
+    return {
+      schemaVersion: SCHEMA_VERSION,
+      counter: Number.isInteger(rec.counter) ? rec.counter : 0,
+      intents: rec.intents || {},
+      plans: rec.plans || {},
+      approvals: rec.approvals || {},
+      executions: rec.executions || {},
+      memories: {},
+    };
+  }
+  throw new Error(`unsupported records schemaVersion: ${rec.schemaVersion == null ? 'missing' : rec.schemaVersion}`);
 }
 
 function load() {
+  let rec;
   try {
-    const rec = JSON.parse(fs.readFileSync(recordsFile(), 'utf8'));
-    if (rec && rec.schemaVersion === SCHEMA_VERSION) return rec;
-    return emptyRecords(); // future: migrations keyed on schemaVersion
+    rec = JSON.parse(fs.readFileSync(recordsFile(), 'utf8'));
   } catch { return emptyRecords(); }
+  const migrated = migrate(rec);
+  if (rec.schemaVersion === 1 && migrated.schemaVersion === SCHEMA_VERSION) save(migrated);
+  return migrated;
 }
 
 function save(rec) {
@@ -65,7 +86,7 @@ function list(kind) {
 }
 function snapshot() {
   const rec = load();
-  return { intents: Object.values(rec.intents), plans: Object.values(rec.plans), approvals: Object.values(rec.approvals), executions: Object.values(rec.executions) };
+  return { intents: Object.values(rec.intents), plans: Object.values(rec.plans), approvals: Object.values(rec.approvals), executions: Object.values(rec.executions), memories: Object.values(rec.memories) };
 }
 
 module.exports = { stateDir, create, put, get, list, snapshot, SCHEMA_VERSION };

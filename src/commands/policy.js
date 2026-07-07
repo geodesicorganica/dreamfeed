@@ -13,6 +13,9 @@ const CLASSES = new Set(['auto', 'approve', 'founder', 'denied']);
 const DEFAULTS = Object.freeze({
   'task-transition': 'auto',
   'work-file-edit': 'approve',
+  'memory-upsert': 'approve',
+  'memory-archive': 'approve',
+  'memory-delete': 'founder',
   'promote-topology': 'approve',
   'git-add': 'approve',
   'git-commit': 'approve',
@@ -21,6 +24,13 @@ const DEFAULTS = Object.freeze({
   'git-push': 'founder',
   'rollback': 'founder',
 });
+
+function classWithFloor(op, cls) {
+  const next = CLASSES.has(cls) ? cls : 'denied';
+  if (op === 'memory-delete' && next !== 'founder' && next !== 'denied') return DEFAULTS[op];
+  if ((op === 'memory-upsert' || op === 'memory-archive') && next === 'auto') return DEFAULTS[op];
+  return next;
+}
 
 function loadPolicy(repoRoot) {
   const classes = { ...DEFAULTS };
@@ -38,7 +48,7 @@ function loadPolicy(repoRoot) {
     // A project may only re-class known operations; it cannot invent new ones,
     // and an invalid class degrades to denied (never to a weaker class).
     if (!(op in DEFAULTS)) continue;
-    classes[op] = CLASSES.has(cls) ? cls : 'denied';
+    classes[op] = classWithFloor(op, cls);
   }
   return { classes, source: rel };
 }

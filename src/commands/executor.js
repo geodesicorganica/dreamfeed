@@ -9,6 +9,12 @@ const fs = require('fs');
 const path = require('path');
 const { rootToken } = require('../parse');
 const { writeRepoFile, hashText } = require('../write');
+const {
+  applyMemoryUpsert,
+  applyMemoryArchive,
+  applyMemoryDelete,
+  safeMemorySummary,
+} = require('../memory');
 const { checkDrift } = require('./plans');
 const store = require('./store');
 const { appendEvent } = require('./ledger');
@@ -77,6 +83,24 @@ function executePlan(plan, { actor = 'operator', health } = {}, repoRoot) {
         const out = runGit(op.args, repoRoot);
         execution.results.push({ op: i, type: 'git', args: op.args, ok: true, tail: String(out).split('\n').slice(-5).join('\n') });
         appendEvent({ type: 'op-applied', actor, executionId: execution.id, op: i, kind: 'git', args: op.args });
+      } else if (op.type === 'memory-upsert') {
+        const out = applyMemoryUpsert({ memoryId: op.memoryId, draft: op.draft, actor }, repoRoot);
+        if (out.error) throw Object.assign(new Error(out.error), { code: out.code });
+        const memory = safeMemorySummary(out.memory);
+        execution.results.push({ op: i, type: 'memory-upsert', ok: true, memory });
+        appendEvent({ type: 'op-applied', actor, executionId: execution.id, op: i, kind: 'memory-upsert', memoryId: memory.id, memoryHash: memory.contentHash, state: memory.state });
+      } else if (op.type === 'memory-archive') {
+        const out = applyMemoryArchive({ memoryId: op.memoryId, actor }, repoRoot);
+        if (out.error) throw Object.assign(new Error(out.error), { code: out.code });
+        const memory = safeMemorySummary(out.memory);
+        execution.results.push({ op: i, type: 'memory-archive', ok: true, memory });
+        appendEvent({ type: 'op-applied', actor, executionId: execution.id, op: i, kind: 'memory-archive', memoryId: memory.id, memoryHash: memory.contentHash, state: memory.state });
+      } else if (op.type === 'memory-delete') {
+        const out = applyMemoryDelete({ memoryId: op.memoryId, actor }, repoRoot);
+        if (out.error) throw Object.assign(new Error(out.error), { code: out.code });
+        const memory = safeMemorySummary(out.memory);
+        execution.results.push({ op: i, type: 'memory-delete', ok: true, memory });
+        appendEvent({ type: 'op-applied', actor, executionId: execution.id, op: i, kind: 'memory-delete', memoryId: memory.id, memoryHash: memory.contentHash, state: memory.state });
       } else {
         throw new Error(`unknown op type ${op.type}`);
       }

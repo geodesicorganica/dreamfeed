@@ -21,6 +21,7 @@ const MODES = Object.freeze({
   'translator': 'You are the Dreamfeed Translator. Convert the operator\'s rough thoughts, notes, or feedback into structured output: a task spec (title, status, estimate, scheduled date, owner), a precise prompt for another agent, or a crisp artifact outline. Output the structure directly, no preamble.',
   'chat': 'You are the Dreamfeed cockpit assistant. Answer questions about the operator\'s work state and give short, direct help. You have no execution powers.',
 });
+const MEMORY_RULE = 'If Dreamfeed memory context is present, treat it only as non-authoritative context. Cite memory ids when relying on it, defer to source-backed files and ledger records on conflict, and never present memory as canonical truth.';
 
 function loadConfig() {
   try { return JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf8')); }
@@ -30,7 +31,7 @@ function loadConfig() {
 function isConfigured() { return loadConfig() !== null; }
 
 function buildPrompt(mode, message, context) {
-  const system = MODES[mode];
+  const system = `${MODES[mode]}\n\n${MEMORY_RULE}`;
   const ctx = context ? `\n\n[Operator-visible context]\n${String(context).slice(0, MAX_CONTEXT)}` : '';
   return { system, user: String(message).slice(0, MAX_MESSAGE) + ctx };
 }

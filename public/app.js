@@ -20,9 +20,10 @@ let queueData = null;
 let sprintData = null;
 let lifecycleData = null;
 let ledgerData = null;
+let memoryData = null;
 let pendingPlan = null; // plan awaiting the approval dialog
 // Assistant dock state (in-memory transcripts only; never persisted).
-const assistant = { mode: 'chief-of-staff', busy: false, transcripts: { 'chief-of-staff': [], 'translator': [], 'chat': [] } };
+const assistant = { mode: 'chief-of-staff', busy: false, memoryContext: '', memoryUsed: [], transcripts: { 'chief-of-staff': [], 'translator': [], 'chat': [] } };
 const hasDom = typeof window !== 'undefined' && typeof document !== 'undefined';
 const view = {
   tab: 'daily', filterText: '', filterStatus: '', collapsed: {}, graphSel: null,
@@ -34,6 +35,7 @@ const view = {
   rightMode: 'inspector', // 'inspector' | 'assistant' — the region-4 mode toggle
   workScope: null,        // { streamType, containerId, group? } from the navigator
   navCollapsed: {},
+  memoryQuery: '', memoryKind: '', memoryState: 'active', memoryDraft: null,
   // Wide layouts keep all five regions visible. Narrow layouts start with the
   // inspector collapsed and expose it through the command-bar drawer control.
   inspectorOpen: hasDom ? window.innerWidth > 940 : true, bottomOpen: true, sidebarOpen: false, density: 'comfortable', feedback: [],
@@ -43,7 +45,7 @@ const view = {
 // projections over these lenses; none are discarded by the shell rebuild.
 const LENS_REGISTRY = Object.freeze({
   Queue: { tabs: ['daily', 'work'], defaultTab: 'daily' },
-  Dashboard: { tabs: ['overview', 'learning'], defaultTab: 'overview' },
+  Dashboard: { tabs: ['overview', 'memory', 'learning'], defaultTab: 'overview' },
   Board: { tabs: ['board', 'queue', 'milestones'], defaultTab: 'board' },
   Table: { tabs: ['sources', 'health'], defaultTab: 'sources' },
   Document: { tabs: ['roadmap', 'review'], defaultTab: 'review' },
@@ -657,6 +659,48 @@ function renderReview() {
   return `<div class="banner">Document lens — internal artifacts remain reviewable and read-only. Select any artifact to open evidence through the Inspector's IDE source view.</div>${group('reviews', 'Reviewable artifacts', `<div class="cards">${items.map((o) => { const id = `review:${o.source_path.value}`; return `<article class="card click" data-object-id="${esc(id)}"><div class="card-head"><div class="card-title">${fv(o.title)}</div>${pill(fieldValue(o.status), 'grey')}</div>${row('family', o.schema_family)}${row('lifecycle', o.lifecycle_stage)}${row('producing agent', o.producing_agent)}${row('review need', o.review_need)}<div class="src">evidence: ${sourceLink(o.source_path.value)}</div></article>`; }).join('')}</div>`, `${items.length}/${state.counts.reviews}`)}`;
 }
 function renderLearning() { if (!state.learningSignals.length) return '<div class="banner">Dashboard lens — Candidate-tier Learning Signals have no traceable source this session, so none render. This is the required no-orphan state.</div>'; return group('learning', 'Learning signals — Candidate only', `<div class="cards">${state.learningSignals.map((o, i) => `<article class="card" data-object-id="learning:${i}"><div class="card-head"><div class="card-title">Learning signal</div>${pill('Candidate', 'amber')}</div>${row('signal', o.signal)}${row('confidence', o.confidence)}${srcLine(o.source_evidence)}</article>`).join('')}</div>`, state.learningSignals.length); }
+function memoryScopeLabel(m) {
+  if (!m || !m.scope) return 'scope unknown';
+  return m.scope.type === 'project' ? 'project' : m.scope.type;
+}
+function renderMemory() {
+  const memories = memoryData?.memories || [];
+  const draft = view.memoryDraft || {};
+  const cards = memories.length ? memories.map((m) => {
+    const source = m.source || {};
+    const sourceText = source.type ? `${source.type}${source.ref ? `:${source.ref}` : ''}` : 'manual';
+    return `<article class="card memory-card" data-memory-id="${esc(m.id)}">
+    <div class="card-head"><div class="card-title">${esc(m.title || '(deleted memory)')}</div>${pill(m.state, m.state === 'active' ? 'green' : m.state === 'archived' ? 'grey' : 'red')}</div>
+    <div class="src">${esc(m.id)} · ${esc(m.kind)} · ${esc(memoryScopeLabel(m))} · ${esc(m.confidence || 'medium')}</div>
+    <p>${esc(m.body || 'Content removed; tombstone retained for audit.')}</p>
+    <div class="src">source: ${esc(sourceText)} · tags: ${esc((m.tags || []).join(', ') || 'none')} · hash ${esc(String(m.contentHash || '').slice(0, 12))}</div>
+    <div class="queue-actions">
+      <button type="button" class="command-button task-action" data-memory-edit="${esc(m.id)}">Edit…</button>
+      ${m.state === 'active' ? `<button type="button" class="command-button task-action" data-memory-archive="${esc(m.id)}">Archive…</button>` : ''}
+      ${m.state !== 'deleted-tombstone' ? `<button type="button" class="command-button task-action" data-memory-delete="${esc(m.id)}">Delete…</button>` : ''}
+    </div>
+  </article>`;
+  }).join('') : '<p class="odim">No governed memories match this view.</p>';
+  return `<div class="banner">Memory lens — approved contextual aids only. Source files and the ledger remain authoritative; memory never self-writes from assistant chat.</div>
+    <section class="owidget">
+      <div class="owidget-head"><h3>Search and filters</h3><span>${esc(memoryData?.retrieval?.strategy || 'structured-keyword')}</span></div>
+      <div class="assistant-input">
+        <input id="memoryQuery" type="search" value="${esc(view.memoryQuery)}" placeholder="Search approved memories" autocomplete="off" />
+        <select id="memoryKind"><option value="">All kinds</option>${['semantic', 'episodic', 'procedural', 'preference'].map((k) => `<option value="${k}"${view.memoryKind === k ? ' selected' : ''}>${k}</option>`).join('')}</select>
+        <select id="memoryState"><option value="active"${view.memoryState === 'active' ? ' selected' : ''}>active</option><option value="archived"${view.memoryState === 'archived' ? ' selected' : ''}>archived</option><option value=""${view.memoryState === '' ? ' selected' : ''}>active + archived</option></select>
+        <button type="button" class="command-button" data-memory-refresh>Apply</button>
+        <button type="button" class="command-button" data-memory-export>Export</button>
+      </div>
+    </section>
+    <section class="owidget">
+      <div class="owidget-head"><h3>${draft.memoryId ? `Edit ${esc(draft.memoryId)}` : 'Propose memory'}</h3><span>approval required</span></div>
+      <input id="memoryDraftId" type="hidden" value="${esc(draft.memoryId || '')}" />
+      <div class="assistant-input"><input id="memoryTitle" type="text" value="${esc(draft.title || '')}" placeholder="Title" autocomplete="off" /><select id="memoryDraftKind">${['semantic', 'episodic', 'procedural', 'preference'].map((k) => `<option value="${k}"${(draft.kind || 'semantic') === k ? ' selected' : ''}>${k}</option>`).join('')}</select><select id="memoryDraftScope"><option value="project"${(draft.scopeType || 'project') === 'project' ? ' selected' : ''}>project</option><option value="operator"${draft.scopeType === 'operator' ? ' selected' : ''}>operator</option><option value="product"${draft.scopeType === 'product' ? ' selected' : ''}>product</option></select></div>
+      <div class="assistant-input"><textarea id="memoryBody" rows="4" placeholder="Memory body">${esc(draft.body || '')}</textarea></div>
+      <div class="assistant-input"><input id="memoryTags" type="text" value="${esc((draft.tags || []).join(', '))}" placeholder="tags, comma separated" autocomplete="off" /><button type="button" class="command-button primary" data-memory-propose>${draft.memoryId ? 'Propose update…' : 'Propose memory…'}</button><button type="button" class="command-button" data-memory-clear>Clear</button></div>
+    </section>
+    ${group('memories', `Governed memories (${memories.length})`, `<div class="cards">${cards}</div>`, memories.length)}`;
+}
 function renderSources() { return `<div class="banner">Table lens — source map, schema family, freshness, and parse status. Each row selects the shared inspector.</div><table class="grid"><tr><th>file</th><th>family</th><th>governance type</th><th>status</th><th>freshness</th><th>role</th></tr>${state.sources.map((s) => `<tr data-object-id="source:${esc(s.path)}" class="${view.selectedObjectId === `source:${s.path}` ? 'selected' : ''}"><td>${esc(s.path)}</td><td>${esc(s.schemaFamily)}</td><td>${esc(s.governanceType || '—')}</td><td>${esc(s.fileStatus || '—')}</td><td>${s.freshness?.nys ? 'n/y/s' : `${esc(s.freshness.value.state)} ${esc(s.freshness.value.ageDays)}d/${esc(s.freshness.value.thresholdDays)}d`}</td><td>${s.rendersObjects ? 'renders objects' : 'loaded only'}</td></tr>`).join('')}</table>`; }
 function renderHealth() {
   const h = repoHealth; if (!h) return '<div class="banner">Repo Health loading…</div>'; if (h.fatal) return `<article class="card error-card"><div class="card-title">Repo health error</div><p>${esc(h.fatal)}</p></article>`;
@@ -858,6 +902,86 @@ async function runTransition(taskId, to) {
   } catch (err) { feedback(`Transition failed: ${String(err)}`); render(); }
 }
 
+async function refreshMemoryData() {
+  const qs = new URLSearchParams();
+  if (view.memoryQuery) qs.set('q', view.memoryQuery);
+  if (view.memoryKind) qs.set('kind', view.memoryKind);
+  if (view.memoryState) qs.set('state', view.memoryState);
+  else qs.set('includeArchived', '1');
+  try {
+    const res = await guardedFetch(`/api/memory?${qs.toString()}`);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    memoryData = await res.json();
+  }
+  catch { memoryData = { memories: [], retrieval: { strategy: 'structured-keyword' } }; }
+}
+
+function memoryDraftFromForm() {
+  const memoryId = $('#memoryDraftId')?.value.trim();
+  const scopeType = $('#memoryDraftScope')?.value || 'project';
+  const payload = {
+    kind: $('#memoryDraftKind')?.value || 'semantic',
+    title: $('#memoryTitle')?.value.trim(),
+    body: $('#memoryBody')?.value.trim(),
+    tags: ($('#memoryTags')?.value || '').split(',').map((s) => s.trim()).filter(Boolean),
+    scope: { type: scopeType },
+    source: {
+      type: view.memoryDraft?.sourceType || (memoryId ? 'operator-edit' : 'manual'),
+      ref: view.memoryDraft?.sourceRef || memoryId || 'manual proposal',
+    },
+  };
+  return { memoryId, payload };
+}
+
+async function raiseMemoryIntent(kind, payload) {
+  const ir = await postMutation('/api/intents', { kind, payload });
+  const iData = await ir.json().catch(() => ({}));
+  if (!ir.ok) { feedback(`Memory intent refused (${ir.status}): ${iData.error || 'unknown'}`); render(); return; }
+  const pr = await postMutation(`/api/intents/${encodeURIComponent(iData.intent.id)}/plan`);
+  const pData = await pr.json().catch(() => ({}));
+  if (!pr.ok) { feedback(`Memory plan refused (${pr.status}): ${pData.error || 'unknown'}`); render(); return; }
+  openApprovalDialog(pData.plan);
+}
+
+async function proposeMemoryFromForm() {
+  const { memoryId, payload } = memoryDraftFromForm();
+  if (!payload.title || !payload.body) { feedback('Memory title and body are required'); renderBottomPanel(); return; }
+  if (memoryId) payload.memoryId = memoryId;
+  await raiseMemoryIntent('memory-upsert', payload);
+}
+
+async function runMemoryStateIntent(kind, memoryId) {
+  await raiseMemoryIntent(kind, { memoryId });
+}
+
+function editMemory(memoryId) {
+  const m = (memoryData?.memories || []).find((x) => x.id === memoryId);
+  if (!m) return;
+  view.memoryDraft = {
+    memoryId: m.id, kind: m.kind, title: m.title, body: m.body,
+    tags: m.tags || [], scopeType: m.scope?.type || 'project',
+  };
+  goTab('memory');
+}
+
+function setMemoryDraft(draft) {
+  view.memoryDraft = draft;
+  goTab('memory');
+}
+
+async function exportMemoryData() {
+  const res = await guardedFetch('/api/memory/export?includeDeleted=1');
+  if (!res.ok) {
+    feedback(`Memory export refused (${res.status})`);
+    renderBottomPanel();
+    return;
+  }
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  window.open(url, '_blank', 'noopener');
+  setTimeout(() => URL.revokeObjectURL(url), 60000);
+}
+
 function pendingApprovals() {
   // 'planned' non-auto plans await approval; 'approved' plans (any class,
   // including an auto plan whose execution failed) await a retry of execute —
@@ -872,9 +996,12 @@ function openApprovalDialog(plan) {
   $('#apSummary').textContent = plan.summary || plan.opName;
   $('#apMeta').innerHTML = `<div class="trace-row"><span>plan</span><b>${esc(plan.id)} · class ${esc(plan.class)}</b></div><div class="trace-row"><span>plan hash</span><b>${esc(String(plan.planHash).slice(0, 16))}…</b></div>`;
   const diff = plan.preview?.diff;
+  const memoryPreview = plan.preview?.memory
+    ? [`memory: ${plan.preview.memory.title || plan.preview.memory.id}`, `kind: ${plan.preview.memory.kind || 'unknown'}`, `state: ${plan.preview.nextState || plan.preview.memory.state || 'active'}`, '', plan.preview.memory.body || '(body hidden for tombstone)'].join('\n')
+    : null;
   $('#apPreview').textContent = diff
     ? diff.map((c) => `${c.type === 'add' ? '+' : '-'} ${c.text}`).join('\n') || '(no line changes)'
-    : (plan.preview?.command || '(no preview)');
+    : (plan.preview?.command || memoryPreview || '(no preview)');
   const founder = plan.class === 'founder';
   $('#apConfirmWrap').hidden = !founder;
   $('#apConfirm').value = '';
@@ -940,7 +1067,7 @@ function renderAssistant(inspector) {
   const body = !configured
     ? `<div class="assistant-empty"><p><b>Assistant not configured.</b></p><p class="odim">Create <code>assistant-config.json</code> in the app folder (gitignored) with a <code>cli</code> or <code>http</code> provider. See README §Assistant. Keys never enter this repo or the ledger.</p></div>`
     : (transcript.length
-      ? transcript.map((m) => `<div class="assistant-msg assistant-${m.role}"><span class="assistant-role">${m.role === 'user' ? 'YOU' : 'ASSISTANT'}</span><div>${renderMarkdown(m.text)}</div></div>`).join('')
+      ? transcript.map((m, i) => `<div class="assistant-msg assistant-${m.role}"><span class="assistant-role">${m.role === 'user' ? 'YOU' : 'ASSISTANT'}</span><div>${renderMarkdown(m.text)}</div><button type="button" class="command-button task-action" data-memory-from-assistant="${i}">Remember…</button></div>`).join('')
       : `<div class="assistant-empty odim">${assistant.mode === 'chief-of-staff' ? 'Ask for a read on today\'s queue, or what to delegate. Proposals come back as suggestions — every action still needs your approval.' : assistant.mode === 'translator' ? 'Paste rough notes; get back a structured task spec or prompt.' : 'Ask anything about the current work state.'}</div>`);
   inspector.innerHTML = `
     <div class="right-mode-tabs"><button type="button" class="right-mode" data-right-mode="inspector">Inspector</button><button type="button" class="right-mode active" data-right-mode="assistant">Assistant</button></div>
@@ -948,6 +1075,7 @@ function renderAssistant(inspector) {
       <div class="assistant-modes">${modeTabs}</div>
       <div class="assistant-transcript" id="assistantTranscript">${body}${assistant.busy ? '<div class="assistant-msg odim">thinking…</div>' : ''}</div>
       ${ctx ? `<details class="assistant-ctx"><summary>Context sent with each message</summary><pre>${esc(ctx)}</pre></details>` : ''}
+      ${assistant.memoryContext ? `<details class="assistant-ctx" open><summary>Memory context sent (${assistant.memoryUsed.length})</summary><pre>${esc(assistant.memoryContext)}</pre></details>` : ''}
       <div class="assistant-input">
         <textarea id="assistantText" rows="3" placeholder="${configured ? 'Message the assistant…' : 'Configure the assistant first'}" ${configured && !assistant.busy ? '' : 'disabled'}></textarea>
         <button type="button" class="command-button primary" id="assistantSend" ${configured && !assistant.busy ? '' : 'disabled'}>Send</button>
@@ -964,6 +1092,8 @@ function renderAssistant(inspector) {
     try {
       const res = await postMutation(`/api/assistant/${assistant.mode}/messages`, { message, context: assistantContext() });
       const data = await res.json().catch(() => ({}));
+      assistant.memoryContext = data.memory?.context || '';
+      assistant.memoryUsed = data.memory?.used || [];
       assistant.transcripts[assistant.mode].push({ role: 'assistant', text: res.ok ? data.reply : `⚠ ${data.error || `HTTP ${res.status}`}` });
     } catch (err) {
       assistant.transcripts[assistant.mode].push({ role: 'assistant', text: `⚠ ${String(err)}` });
@@ -974,6 +1104,11 @@ function renderAssistant(inspector) {
   };
   if (sendBtn) sendBtn.addEventListener('click', send);
   if (text) text.addEventListener('keydown', (e) => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); send(); } });
+  inspector.querySelectorAll('[data-memory-from-assistant]').forEach((el) => el.addEventListener('click', () => {
+    const msg = assistant.transcripts[assistant.mode][Number(el.dataset.memoryFromAssistant)];
+    if (!msg) return;
+    setMemoryDraft({ kind: msg.role === 'assistant' ? 'semantic' : 'episodic', title: `Assistant ${msg.role} note`, body: msg.text, tags: ['assistant'], sourceType: 'assistant' });
+  }));
 }
 
 function renderInspector() {
@@ -991,10 +1126,15 @@ function renderInspector() {
   const evidence = renderEvidenceView(item);
   const relationships = item.relationships.length ? `<ul class="detail-list">${item.relationships.map((r) => `<li>${esc(r)}</li>`).join('')}</ul>` : '<p class="odim">No source-backed relationship is structured for this selection.</p>';
   const content = view.inspectorTab === 'evidence' ? evidence : view.inspectorTab === 'relationships' ? relationships : overview;
-  const sourceAction = item.sourcePath ? `<button type="button" class="inspector-action" data-evidence-path="${esc(item.sourcePath)}">Load read-only source → ${esc(item.sourcePath)}</button>` : '';
+  const sourceAction = item.sourcePath ? `<button type="button" class="inspector-action" data-evidence-path="${esc(item.sourcePath)}">Load read-only source → ${esc(item.sourcePath)}</button><button type="button" class="inspector-action" data-memory-from-source="${esc(item.id)}">Propose memory from source…</button>` : '';
   inspector.innerHTML = `${modeTabs}<div class="inspector-head"><div class="region-label">Selected object</div><h2>${esc(item.title)}</h2><div class="inspector-id">${esc(item.id)}</div></div><div class="inspector-tabs"><button type="button" data-inspector-tab="overview" class="${view.inspectorTab === 'overview' ? 'active' : ''}">Overview</button><button type="button" data-inspector-tab="evidence" class="${view.inspectorTab === 'evidence' ? 'active' : ''}">Evidence</button><button type="button" data-inspector-tab="relationships" class="${view.inspectorTab === 'relationships' ? 'active' : ''}">Relationships</button></div><div class="inspector-body">${content}${sourceAction}<div class="detail-sec">Read-only action</div><p class="odim">${esc(item.nextAction)}</p></div>`;
   inspector.querySelectorAll('[data-inspector-tab]').forEach((button) => button.addEventListener('click', () => { view.inspectorTab = button.dataset.inspectorTab; renderInspector(); }));
   inspector.querySelectorAll('[data-evidence-path]').forEach((button) => button.addEventListener('click', () => openEvidence(button.dataset.evidencePath, item.id)));
+  inspector.querySelectorAll('[data-memory-from-source]').forEach((button) => button.addEventListener('click', () => {
+    const srcItem = objectRegistry.get(button.dataset.memoryFromSource);
+    if (!srcItem) return;
+    setMemoryDraft({ kind: 'semantic', title: srcItem.title, body: `${srcItem.title}\n${srcItem.nextAction || ''}`.trim(), tags: ['source'], sourceType: 'source', sourceRef: srcItem.sourcePath || srcItem.id });
+  }));
   inspector.querySelectorAll('[data-evidence-mode]').forEach((button) => button.addEventListener('click', () => { view.evidenceMode = button.dataset.evidenceMode; renderInspector(); }));
   wireModeTabs();
 }
@@ -1074,7 +1214,7 @@ function renderBottomPanel() {
   const events = (ledgerData?.events || []).slice(-8).reverse();
   const rollbackable = new Set((lifecycleData?.executions || []).filter((e) => e.status === 'succeeded' && (e.preimages || []).length).map((e) => e.id));
   const ledgerSec = `<div class="bottom-section"><div class="bottom-head"><h2>Visual Ledger</h2><span>${ledgerData?.chain ? (ledgerData.chain.ok ? pill('chain ok', 'green') : pill('chain broken', 'red')) : pill('unavailable', 'grey')}</span></div>${events.length
-    ? events.map((e) => `<div class="trace-row"><span>#${e.seq} ${esc(monoTime(e.ts))}</span><b>${esc(e.type)}${e.summary ? ` · ${esc(e.summary)}` : ''}${e.executionId && e.type === 'execution-succeeded' && rollbackable.has(e.executionId) ? ` <button type="button" class="command-button task-action" data-rollback="${esc(e.executionId)}">Roll back…</button>` : ''}</b></div>`).join('')
+    ? events.map((e) => `<div class="trace-row"><span>#${e.seq} ${esc(monoTime(e.ts))}</span><b>${esc(e.type)}${e.summary ? ` · ${esc(e.summary)}` : ''} <button type="button" class="command-button task-action" data-memory-from-ledger="${esc(e.seq)}">Remember…</button>${e.executionId && e.type === 'execution-succeeded' && rollbackable.has(e.executionId) ? ` <button type="button" class="command-button task-action" data-rollback="${esc(e.executionId)}">Roll back…</button>` : ''}</b></div>`).join('')
     : '<p class="odim">No governed actions have been ledgered yet.</p>'}</div>`;
   panel.innerHTML = renderStatusStrip() + `<div class="bottom-grid">${approvalsSec}${ledgerSec}${sourceTraces}${checks}${ephemeral}</div>`;
   panel.querySelectorAll('[data-review-plan]').forEach((el) => el.addEventListener('click', () => {
@@ -1090,6 +1230,11 @@ function renderBottomPanel() {
     const data = await res.json().catch(() => ({}));
     feedback(res.ok ? `Rolled back ${id} · ledgered` : `Rollback refused: ${data.error || res.status}`);
     await load();
+  }));
+  panel.querySelectorAll('[data-memory-from-ledger]').forEach((el) => el.addEventListener('click', () => {
+    const evt = (ledgerData?.events || []).find((e) => String(e.seq) === String(el.dataset.memoryFromLedger));
+    if (!evt) return;
+    setMemoryDraft({ kind: 'episodic', title: `Ledger event #${evt.seq}: ${evt.type}`, body: `${evt.type}${evt.summary ? `: ${evt.summary}` : ''}`, tags: ['ledger'], sourceType: 'ledger', sourceRef: `#${evt.seq}` });
   }));
 }
 
@@ -1111,7 +1256,7 @@ function render() {
   const select = $('#filterStatus'); const chosen = view.filterStatus;
   select.innerHTML = '<option value="">All states</option>' + statusOptions().map((s) => `<option value="${esc(s)}"${s === chosen ? ' selected' : ''}>${esc(s)}</option>`).join('');
   $('#loadMeta').textContent = `as of ${state.asOfDate} · reads source-backed · writes governed (D31)`;
-  const screens = { daily: renderDaily, work: renderWork, overview: renderOverview, board: renderBoard, queue: renderQueue, topology: renderTopology, roadmap: renderRoadmap, milestones: renderMilestones, review: renderReview, learning: renderLearning, sources: renderSources, health: renderHealth };
+  const screens = { daily: renderDaily, work: renderWork, overview: renderOverview, memory: renderMemory, board: renderBoard, queue: renderQueue, topology: renderTopology, roadmap: renderRoadmap, milestones: renderMilestones, review: renderReview, learning: renderLearning, sources: renderSources, health: renderHealth };
   $('#main').innerHTML = (screens[view.tab] || renderDaily)();
   renderWorkNav(); renderInspector(); renderBottomPanel(); wireDynamic();
 }
@@ -1153,6 +1298,21 @@ function wireDynamic() {
   main.querySelectorAll('[data-toggle-discovered]').forEach((el) => el.addEventListener('click', (event) => { event.stopPropagation(); view.showDiscovered = !view.showDiscovered; feedback(`Discovered candidates ${view.showDiscovered ? 'shown' : 'hidden'}`); render(); }));
   main.querySelectorAll('[data-rescan]').forEach((el) => el.addEventListener('click', async (event) => { event.stopPropagation(); feedback('Rescanning project for candidates…'); try { discovery = await (await fetch('/api/discovery?rescan=1', { cache: 'no-store' })).json(); } catch (err) { discovery = null; } feedback('Discovery rescan complete'); render(); }));
   main.querySelectorAll('[data-promote]').forEach((el) => el.addEventListener('click', (event) => { event.stopPropagation(); el.disabled = true; runPromotion(el.dataset.promote); }));
+  main.querySelectorAll('[data-memory-refresh]').forEach((el) => el.addEventListener('click', async (event) => {
+    event.stopPropagation();
+    view.memoryQuery = $('#memoryQuery')?.value.trim() || '';
+    view.memoryKind = $('#memoryKind')?.value || '';
+    view.memoryState = $('#memoryState')?.value || '';
+    await refreshMemoryData();
+    feedback('Memory view refreshed');
+    render();
+  }));
+  main.querySelectorAll('[data-memory-export]').forEach((el) => el.addEventListener('click', (event) => { event.stopPropagation(); exportMemoryData(); }));
+  main.querySelectorAll('[data-memory-propose]').forEach((el) => el.addEventListener('click', (event) => { event.stopPropagation(); el.disabled = true; proposeMemoryFromForm(); }));
+  main.querySelectorAll('[data-memory-clear]').forEach((el) => el.addEventListener('click', (event) => { event.stopPropagation(); view.memoryDraft = null; render(); }));
+  main.querySelectorAll('[data-memory-edit]').forEach((el) => el.addEventListener('click', (event) => { event.stopPropagation(); editMemory(el.dataset.memoryEdit); }));
+  main.querySelectorAll('[data-memory-archive]').forEach((el) => el.addEventListener('click', (event) => { event.stopPropagation(); runMemoryStateIntent('memory-archive', el.dataset.memoryArchive); }));
+  main.querySelectorAll('[data-memory-delete]').forEach((el) => el.addEventListener('click', (event) => { event.stopPropagation(); runMemoryStateIntent('memory-delete', el.dataset.memoryDelete); }));
   // Governed task transitions (D31): every click is an intent through the
   // lifecycle; auto-class runs immediately (ledgered), others open approval.
   main.querySelectorAll('[data-transition]').forEach((el) => el.addEventListener('click', (event) => {
@@ -1187,6 +1347,7 @@ async function load(attempt = 0) {
     try { sprintData = await (await fetch('/api/sprint', { cache: 'no-store' })).json(); } catch { sprintData = null; }
     try { lifecycleData = await (await fetch('/api/lifecycle', { cache: 'no-store' })).json(); } catch { lifecycleData = null; }
     try { ledgerData = await (await fetch('/api/ledger', { cache: 'no-store' })).json(); } catch { ledgerData = null; }
+    await refreshMemoryData();
     buildObjectRegistry(); updateProjectLabel(); feedback('Source-backed state refreshed'); render();
   } catch (err) {
     $('#main').innerHTML = `<article class="card error-card"><div class="card-title">Load failed</div><pre class="evidence-content">${esc(String(err))}</pre></article>`;

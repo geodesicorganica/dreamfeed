@@ -5,8 +5,8 @@ agentic-business OS operators (PS-003 / Gate G, D31). Parses markdown tracking
 files — the Stakeport governance layout and the Dreamfeed-native `os/`
 Goals/Operations schema — and surfaces live strategic state, a daily execution
 queue, sprint metrics, topology, and repo health. Writes to the selected
-project happen **only** through a governed lifecycle: intent → plan → explicit
-approval → execution → immutable hash-chained ledger.
+project and approved memory writes happen **only** through a governed lifecycle:
+intent → plan → explicit approval → execution → immutable hash-chained ledger.
 
 **GitHub:** https://github.com/geodesicorganica/dreamfeed
 **Local path:** `C:\Projects\dreamfeed-command-center`
@@ -51,9 +51,13 @@ npm run test:integration
   intent → plan → approval → execute → ledger, root-contained and
   drift-detected. Non-GET methods exist only on the lifecycle routes.
 - Policy classes — `auto` (task transitions) / `approve` (work edits, git
-  add/commit/branch/switch) / `founder` (push, rollback — typed confirmation)
-  / `denied` (force-push, out-of-root, `.git/`). Project override:
+  add/commit/branch/switch, memory upsert/archive) / `founder` (push,
+  rollback, memory delete — typed confirmation) / `denied` (force-push,
+  out-of-root, `.git/`). Project override:
   `os/policy.md`.
+- Governed memory — `.dreamfeed/` schema v2 stores approved contextual aids;
+  memory is inspectable/exportable, never source truth, and never auto-saved
+  from assistant chat.
 - Workspace isolation — one active project per server; no cross-project writes.
 - Zero runtime dependencies; free-form terminal and deploy triggers stay gated.
 
@@ -80,5 +84,6 @@ For cloud providers, point `http.url` at the endpoint and put the key in
 `http.headers` (e.g. `{ "Authorization": "Bearer …" }` or `{ "x-api-key": "…" }`).
 
 See `docs/` for brand, product, design-system, and decision documentation —
-`docs/decisions/d31-write-enabled-command-surface.md` defines the envelope and
+`docs/decisions/d31-write-enabled-command-surface.md` defines the write
+envelope, `docs/decisions/d33-governed-memory-layer.md` defines memory, and
 `docs/product/native-schema.md` the Goals/Operations file format.

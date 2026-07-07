@@ -47,13 +47,13 @@ test('explicit lens registry maps every retained Command Center tab', () => {
   const registry = lensRegistry();
   assert.deepEqual(Object.keys(registry), ['Queue', 'Dashboard', 'Board', 'Table', 'Document', 'IDE', 'Topology']);
   assert.deepEqual(registry.Queue, { tabs: ['daily', 'work'], defaultTab: 'daily' });
-  assert.deepEqual(registry.Dashboard, { tabs: ['overview', 'learning'], defaultTab: 'overview' });
+  assert.deepEqual(registry.Dashboard, { tabs: ['overview', 'memory', 'learning'], defaultTab: 'overview' });
   assert.deepEqual(registry.Board, { tabs: ['board', 'queue', 'milestones'], defaultTab: 'board' });
   assert.deepEqual(registry.Table, { tabs: ['sources', 'health'], defaultTab: 'sources' });
   assert.deepEqual(registry.Document, { tabs: ['roadmap', 'review'], defaultTab: 'review' });
   assert.deepEqual(registry.IDE, { tabs: ['review'], defaultTab: 'review', inspectorMode: 'evidence' });
   assert.deepEqual(registry.Topology, { tabs: ['topology'], defaultTab: 'topology' });
-  for (const tab of ['daily', 'work', 'overview', 'board', 'queue', 'topology', 'roadmap', 'milestones', 'review', 'learning', 'sources', 'health']) {
+  for (const tab of ['daily', 'work', 'overview', 'memory', 'board', 'queue', 'topology', 'roadmap', 'milestones', 'review', 'learning', 'sources', 'health']) {
     assert.match(html, new RegExp(`data-tab="${tab}"`), `retained module tab is missing: ${tab}`);
   }
   assert.match(app, /function goLens\(lens\)/, 'lens control resolves to a retained default tab');
@@ -69,6 +69,7 @@ test('Gate G surfaces: workstream navigator, queue lens, approval dialog, assist
   assert.match(app, /function renderWork\(\)/, 'work detail lens exists');
   assert.match(app, /function renderWorkNav\(\)/, 'workstream navigator renders Goals and Operations trees');
   assert.match(app, /function renderAssistant\(/, 'assistant dock exists as a right-region mode');
+  assert.match(app, /function renderMemory\(\)/, 'governed memory lens exists');
   assert.match(app, /data-right-mode="assistant"/, 'inspector ⇄ assistant mode toggle exists');
   for (const mode of ['chief-of-staff', 'translator', 'chat']) {
     assert.ok(app.includes(`'${mode}'`), `assistant mode present: ${mode}`);
@@ -86,6 +87,9 @@ test('Gate G surfaces: workstream navigator, queue lens, approval dialog, assist
   assert.match(app, /\/api\/work\/tasks\/transition/, 'task transitions use the governed sugar route');
   assert.match(app, /\/api\/plans\/\$\{id\}\/approve/, 'approval posts to the lifecycle route');
   assert.match(app, /streamType/, 'queue rows keep their goal/operation stream identity');
+  assert.match(app, /data-memory-propose/, 'memory proposals start from the Memory lens form');
+  assert.match(app, /data-memory-from-assistant/, 'assistant messages can be proposed as memory without auto-saving');
+  assert.match(app, /Memory context sent/, 'assistant dock shows the exact memory context sent');
 });
 
 test('selection is derived over existing state and routes evidence into the shared inspector', () => {

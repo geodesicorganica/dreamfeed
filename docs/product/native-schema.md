@@ -78,6 +78,9 @@ type: policy
 | Operation | Class |
 |---|---|
 | task-transition | auto |
+| memory-upsert | approve |
+| memory-archive | approve |
+| memory-delete | founder |
 | work-file-edit | approve |
 | git-add | approve |
 | git-commit | approve |
@@ -88,8 +91,10 @@ type: policy
 ```
 
 Classes: `auto` (ledgered, policy-approved), `approve` (explicit approval),
-`founder` (approval + typed confirmation), `denied` (unplannable). Unknown
-operations default to `denied`; a missing file yields the defaults above.
+`founder` (approval + typed confirmation), `denied` (unplannable). Memory
+upsert/archive/delete operate on the app-owned `.dreamfeed/` sidecar and never
+write hidden truth into the source repo. Unknown operations default to `denied`;
+a missing file yields the defaults above.
 
 ## Provenance and projection rules
 

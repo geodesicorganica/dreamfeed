@@ -10,6 +10,7 @@ const { rootToken, splitRow } = require('../parse');
 const { hashText } = require('../write');
 const { findTask, TASK_STATUS } = require('../nativeSchema');
 const { readManifest, MANIFEST_NODE_KINDS, MANIFEST_EDGE_TYPES } = require('../topology');
+const { draftMemory, getVisibleMemory, safeMemorySummary } = require('../memory');
 const { classFor } = require('./policy');
 
 // Safe named git actions (D31 step 5 scope). First token is the subcommand;
@@ -70,7 +71,15 @@ function lineDiff(before, after) {
 function planHashOf(plan) {
   const bound = {
     intentId: plan.intentId, opName: plan.opName, class: plan.class, rootToken: plan.rootToken,
-    ops: plan.ops.map((o) => ({ type: o.type, path: o.path, baseHash: o.baseHash, contentHash: o.content !== undefined ? hashText(o.content) : undefined, args: o.args })),
+    ops: plan.ops.map((o) => ({
+      type: o.type,
+      path: o.path,
+      baseHash: o.baseHash,
+      contentHash: o.content !== undefined ? hashText(o.content) : undefined,
+      args: o.args,
+      memoryId: o.memoryId,
+      memoryHash: o.draft ? o.draft.contentHash : o.memoryHash,
+    })),
   };
   return crypto.createHash('sha256').update(JSON.stringify(bound), 'utf8').digest('hex');
 }
@@ -189,12 +198,52 @@ function planGit(intent) {
   };
 }
 
+function planMemoryUpsert(intent, repoRoot) {
+  const p = intent.payload || {};
+  const drafted = draftMemory(p, { repoRoot });
+  if (drafted.error) return drafted;
+  let existing = null;
+  if (p.memoryId) {
+    const found = getVisibleMemory(String(p.memoryId), repoRoot);
+    if (found.error) return found;
+    existing = found.memory;
+  }
+  return {
+    opName: 'memory-upsert',
+    summary: `${existing ? 'update' : 'remember'} ${drafted.memory.kind}: ${drafted.memory.title}`,
+    ops: [{
+      type: 'memory-upsert',
+      memoryId: existing ? existing.id : null,
+      baseHash: existing ? existing.contentHash : null,
+      draft: drafted.memory,
+    }],
+    preview: { memory: drafted.memory, prior: safeMemorySummary(existing) },
+  };
+}
+
+function planMemoryStateChange(intent, repoRoot, opName, nextState) {
+  const memoryId = String((intent.payload || {}).memoryId || '').trim();
+  if (!memoryId) return { error: 'memoryId required', code: 'validation' };
+  const found = getVisibleMemory(memoryId, repoRoot);
+  if (found.error) return found;
+  if (found.memory.state === 'deleted-tombstone') return { error: 'deleted memory cannot be changed', code: 'state' };
+  return {
+    opName,
+    summary: `${nextState === 'archived' ? 'archive' : 'delete'} memory ${memoryId}: ${found.memory.title}`,
+    ops: [{ type: opName, memoryId, baseHash: found.memory.contentHash }],
+    preview: { memory: safeMemorySummary(found.memory), nextState },
+  };
+}
+
 // Compute a plan for an intent. Returns { plan } or { error, code }.
 function computePlan(intent, { repoRoot, policy }) {
   if (!repoRoot) return { error: 'no project configured', code: 'no-project' };
   let core;
   if (intent.kind === 'task-transition') core = planTaskTransition(intent, repoRoot);
   else if (intent.kind === 'promote-topology') core = planPromoteTopology(intent, repoRoot);
+  else if (intent.kind === 'memory-upsert') core = planMemoryUpsert(intent, repoRoot);
+  else if (intent.kind === 'memory-archive') core = planMemoryStateChange(intent, repoRoot, 'memory-archive', 'archived');
+  else if (intent.kind === 'memory-delete') core = planMemoryStateChange(intent, repoRoot, 'memory-delete', 'deleted-tombstone');
   else if (GIT_OPS[intent.kind]) core = planGit(intent);
   else return { error: `unknown intent kind "${intent.kind}"`, code: 'validation' };
   if (core.error) return core;
@@ -221,6 +270,12 @@ function checkDrift(plan, repoRoot) {
     const abs = path.join(repoRoot, op.path);
     const current = fs.existsSync(abs) ? hashText(fs.readFileSync(abs, 'utf8')) : null;
     if (current !== op.baseHash) return { drifted: true, path: op.path };
+  }
+  for (const op of plan.ops) {
+    if (!op.type || !op.type.startsWith('memory-') || !op.memoryId) continue;
+    const current = getVisibleMemory(op.memoryId, repoRoot);
+    if (current.error) return { drifted: true, path: op.memoryId };
+    if (current.memory.contentHash !== op.baseHash) return { drifted: true, path: op.memoryId };
   }
   return { drifted: false };
 }

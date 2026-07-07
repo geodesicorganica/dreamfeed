@@ -18,15 +18,29 @@
   link; the UI surfaces LEDGER OK/BROKEN in the status strip. Tampering is
   detectable, not preventable, at this trust level (single-operator machine).
 
+## Governed memory addendum (D33, 2026-07-07)
+
+- **Memory sidecar.** Approved memories persist in `.dreamfeed/records.json`
+  schema v2 beside lifecycle records. They are contextual aids, never source
+  truth, and every write goes through the governed lifecycle.
+- **Secret exclusion.** Memory validation rejects likely credentials before
+  persistence. Ledger events record memory ids, states, and hashes, not memory
+  body content.
+- **Scoped retrieval.** Project-scoped memories are returned only for the active
+  project root token. Operator/product scopes are explicit and remain local to
+  this single-operator reference.
+- **Deletion model.** Founder-class delete clears title/body/tags/source content
+  and leaves a `deleted-tombstone` with the prior content hash for audit.
+
 ## Data retention policy
 
-Ephemeral UI state stays in memory; the Gate G control-plane sidecar persists
-as described above. A process restart clears session/UI state but keeps
-lifecycle records and the ledger. The future persisted control plane must
-store each record with schema version, organization/workspace/project scope,
-retention class, export format, deletion eligibility, and source-authority
-classification. Repository sources remain in their repository and are governed
-by repository retention policies.
+Ephemeral UI state stays in memory; the Gate G/D33 control-plane sidecar
+persists as described above. A process restart clears session/UI state and
+assistant transcripts but keeps lifecycle records, approved memories, and the
+ledger. The future persisted control plane must store each record with schema
+version, organization/workspace/project scope, retention class, export format,
+deletion eligibility, and source-authority classification. Repository sources
+remain in their repository and are governed by repository retention policies.
 
 Secrets are excluded from every export. On import, connectors re-enter pending
 authorization and require fresh credential provisioning. Traces retain redacted

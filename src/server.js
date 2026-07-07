@@ -19,6 +19,7 @@ const { approvePlan, executePlan, rollbackExecution } = require('./commands/exec
 const cpStore = require('./commands/store');
 const { appendEvent, readLedger, verifyChain } = require('./commands/ledger');
 const { runAssistant, isConfigured: assistantConfigured } = require('./assistant/adapter');
+const { listMemories, retrieveMemories, exportMemories, safeMemorySummary } = require('./memory');
 const { REPO_ROOT, canonicalRoot, canonicalKey, rootToken } = require('./parse');
 const projectPicker = require('./projectPicker');
 
@@ -420,6 +421,31 @@ function sendEngineError(res, out) {
   sendJson(res, CODE_STATUS[out.code] || 400, { error: out.error, code: out.code });
 }
 
+function guardSensitiveRead(req, res) {
+  const g = guardMutation(req);
+  if (!g.ok) {
+    sendJson(res, g.status, { error: g.error });
+    return false;
+  }
+  if (!currentRoot) {
+    sendJson(res, 409, { error: 'no project configured', code: 'no-project' });
+    return false;
+  }
+  return true;
+}
+
+function assistantMemoryContext(message, visibleContext) {
+  if (!currentRoot) return { context: '', used: [], strategy: 'structured-keyword', vectorReady: true };
+  const query = [message, visibleContext].filter(Boolean).join(' ');
+  const retrieved = retrieveMemories({ repoRoot: currentRoot, query, limit: 5 });
+  return {
+    context: retrieved.context,
+    used: retrieved.used.map(safeMemorySummary),
+    strategy: retrieved.strategy,
+    vectorReady: retrieved.vectorReady,
+  };
+}
+
 function handleMutation(req, res, url, body) {
   const m = matchMutating(url);
   const { params } = m;
@@ -488,9 +514,11 @@ function handleMutation(req, res, url, body) {
   if (m.pattern === '/api/assistant/:mode/messages') {
     // Assistant proxy (D31): outbound only via the adapter's configured
     // endpoint; the context string is client-built and operator-visible.
-    return runAssistant(params.mode, body.message, body.context).then((out) => {
+    const memory = assistantMemoryContext(body.message, body.context);
+    const context = [body.context, memory.context].filter(Boolean).join('\n\n');
+    return runAssistant(params.mode, body.message, context).then((out) => {
       if (out.error) { sendEngineError(res, out); return; }
-      sendJson(res, 200, { reply: out.reply, mode: params.mode });
+      sendJson(res, 200, { reply: out.reply, mode: params.mode, memory });
     });
   }
   if (m.pattern === '/api/work/tasks/transition') {
@@ -650,6 +678,32 @@ const server = http.createServer((req, res) => {
     try {
       const after = parseInt(params.get('after') || '0', 10) || 0;
       sendJson(res, 200, { events: readLedger({ after }), chain: verifyChain() });
+    } catch (err) { sendJson(res, 500, { fatal: String(err.message || err) }); }
+    return;
+  }
+  if (url === '/api/memory') {
+    if (!guardSensitiveRead(req, res)) return;
+    try {
+      const query = params.get('q') || '';
+      const kind = params.get('kind') || undefined;
+      const includeArchived = params.get('includeArchived') === '1';
+      const includeDeleted = params.get('includeDeleted') === '1';
+      const stateFilter = params.get('state') || undefined;
+      const memories = query
+        ? retrieveMemories({ repoRoot: currentRoot, query, kind, limit: parseInt(params.get('limit') || '50', 10) || 50 }).used
+        : listMemories({ repoRoot: currentRoot, state: stateFilter || (includeArchived ? undefined : 'active'), kind, includeDeleted });
+      sendJson(res, 200, {
+        rootToken: currentRoot ? rootToken(currentRoot) : null,
+        retrieval: { strategy: 'structured-keyword', vectorReady: true },
+        memories,
+      });
+    } catch (err) { sendJson(res, 500, { fatal: String(err.message || err) }); }
+    return;
+  }
+  if (url === '/api/memory/export') {
+    if (!guardSensitiveRead(req, res)) return;
+    try {
+      sendJson(res, 200, exportMemories({ repoRoot: currentRoot, includeDeleted: params.get('includeDeleted') === '1' }));
     } catch (err) { sendJson(res, 500, { fatal: String(err.message || err) }); }
     return;
   }

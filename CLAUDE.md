@@ -19,18 +19,21 @@ Hard constraints (unchanged from Gate F):
   cross-project writes, no parent scanning or fallback roots.
 - Zero runtime dependencies.
 - Gate C parser semantics for the six Stakeport object families unchanged.
-- Secrets never in project repos, ledger, traces, or logs.
+- Secrets never in project repos, memory, ledger, traces, or logs.
 
 Write mode (relaxed by D31, scoped):
 - Non-GET methods exist **only** on the enumerated mutating routes; everything
   else stays 405.
-- Source-repo writes happen **only** through the governed lifecycle
+- Source-repo writes and approved memory writes happen **only** through the governed lifecycle
   (intent → plan → explicit approval → execute → immutable ledger) with
   base-hash drift detection and policy classes (`auto`/`approve`/`founder`/
   `denied` per `os/policy.md`).
-- Control-plane records live in the gitignored `.dreamfeed/` sidecar, never as
-  hidden truth in source repos.
-- Free-form terminal and deploy triggers are **not** in scope (D33+ candidates);
+- Control-plane records, including approved governed memories, live in the
+  gitignored `.dreamfeed/` sidecar, never as hidden truth in source repos.
+- Governed memory (D33) is non-authoritative, project-scoped by default,
+  inspectable/exportable, approval-gated, and never auto-saved from assistant
+  chat; `memory-delete` is `founder`-class.
+- Free-form terminal and deploy triggers are **not** in scope (future candidates);
   git write actions are limited to the safe named allowlist
   (add/commit/branch/switch `approve`-class; push `founder`-class).
 

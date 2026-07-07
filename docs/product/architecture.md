@@ -23,7 +23,7 @@ after the Phase 1.3 and Phase 2 gates below are evidenced.
 
 | Phase | Local reference implementation | Explicitly excluded |
 |---|---|---|
-| 1.3 | Authorized local project selection, read-scoped source inspection, proposed-edit/diff review, policy-scoped plan/approval/run lifecycle, immutable in-memory ledger, controlled test command, halt and rollback for fixture-safe mutations | Remote credential use, unrestricted shell, deployment, commit/branch mutation, persistence, public service |
+| 1.3 | Authorized local project selection, read-scoped source inspection, proposed-edit/diff review, policy-scoped plan/approval/run lifecycle, immutable ledger, governed sidecar memory, controlled test command, halt and rollback for fixture-safe mutations | Remote credential use, unrestricted shell, deployment, unapproved persistence, public service |
 | 1.3 validation | Two synthetic fixture projects, onboarding guide, acceptance script, feedback capture schema, and a measurable non-VS-Code/non-Claude-Code protocol | Claiming an external design partner or Phase 2 eligibility |
 | 2 reference | Organization/workspace/project/repository control-plane model, membership/roles, tenant-isolated projections, encrypted in-memory secret vault, entitlements, import/export and migration adapters | Public hosting, customer identity, payment collection, legal/entity claims, production launch |
 | post-launch prototype | Executive profiles, model controls, budgets, decision/ticket queue, release/sprint records, onboarding/review, opt-in Guild model | Cross-tenant sharing, autonomous execution, moderation bypass, commercial enablement |
@@ -36,6 +36,7 @@ after the Phase 1.3 and Phase 2 gates below are evidenced.
 | V1 six-object projection | `c:\Projects\dreamfeed-command-center` parser (extracted D29 2026-07-01) | Remains source-backed and unchanged | Executing from the V1 API or modifying its source maps |
 | Project index/cache | Project-scoped control-plane projection | Ephemeral, labelled derived/cached, rebuilt per grant | Shared between projects or treated as canonical |
 | UI/editor state | Current project/workspace session | In memory in the reference; later persistence requires schema version, tenant scope, export, and no authority over source truth | Browser storage that silently changes source-backed state |
+| Governed memory | Product control plane sidecar | Approved contextual aid with kind/state/scope/provenance/hash; structured + keyword retrieval; exportable and non-authoritative | Auto-saved assistant truth, source replacement, secret storage, cross-project retrieval |
 | Policy, approval, run, trace, artifact | Product control plane | Tenant/workspace/project scoped records with actor, time, source authority, and immutable event sequence | Writing into the source repository as hidden governance truth |
 | Credentials | Secret vault | Encrypted in memory, redacted from traces and exports, never written to source repositories | Plaintext persistence, trace logging, cross-tenant lookup |
 | Usage and entitlements | Product control plane | Plan-agnostic feature gates and metering records | Invented prices, payment collection, or legal plan claims |
@@ -157,6 +158,7 @@ explicit Phase 2 security gate, not implied by this reference.
 | Arbitrary shell/deploy escalation | Fixed operation and command allowlists; deploy entitlement disabled | Policy tests |
 | Approval replay after source change | Base-source hash is rechecked before run | Mutation/approval tests |
 | Ledger tampering | Append-only frozen event records; no update API | Immutability tests |
+| Memory drift or hidden truth | Approval-gated sidecar memory, content hashes, tombstones, source/ledger precedence | Memory lifecycle and HTTP tests |
 | Failed mutation leaves unknown state | Captured preimage, halted state, constrained rollback | Failure/halt/rollback tests |
 | Credential disclosure | In-memory AES-GCM vault, trace redaction, export omission | Secret/export tests |
 | Static-file exposure | Explicit route allowlist and MIME map; no `docs/` mapping | HTTP asset-security tests |
@@ -169,6 +171,7 @@ explicit Phase 2 security gate, not implied by this reference.
 | Phase 1 Command Center / Gate C | Preserved | Existing parser/object/provenance regression suite remains green |
 | Gate F wording | Reconciled as historical UX constraint, not a separate-brand rule | D23 single-brand decision and this product boundary remain consistent |
 | **PS-003 / Gate G write envelope (D31)** | **Open — first slice implemented 2026-07-03** | Governed lifecycle (intent → plan → approval → execute → ledger) implemented in this package: `src/commands/*`, `src/write.js`, native schema + queue, safe named git actions, assistant adapter. Evidence: `test/constraints.test.js`, `test/write-guards.test.js`, `test/ledger.test.js`, `test/readiness.test.js`. Remaining Phase 1.3 surface (proposed file edits, branch-management UI, deploy triggers, free-form terminal) stays gated |
+| **D33 governed memory layer** | **Implemented 2026-07-07** | `.dreamfeed/` schema v2 memories; approve/founder policy classes; GET-only memory list/export; assistant context visibility. Evidence: `test/memory.test.js`, `test/ui-contract.test.js`, `test/constraints.test.js` |
 | Phase 1.3 external validation | Blocked | Evidence from two real non-Stakeport organizations using the acceptance protocol |
 | Phase 2 launch | Blocked | Three or more validated organizations plus approved security, legal, trademark, and commercial evidence |
 | Remote execution/deploy | Disabled | Approved connector, policy, entitlement, environment, and execution safety evidence |
