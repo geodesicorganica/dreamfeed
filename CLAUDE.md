@@ -33,6 +33,10 @@ Write mode (relaxed by D31, scoped):
 - Governed memory (D33) is non-authoritative, project-scoped by default,
   inspectable/exportable, approval-gated, and never auto-saved from assistant
   chat; `memory-delete` is `founder`-class.
+- Verification/release evidence (D35) is non-authoritative, project-scoped,
+  inspectable/exportable, approval-gated, and never performs test execution,
+  deploys, tags, pushes, terminal commands, or public release creation;
+  `release-mark-shipped` is `founder`-class evidence only.
 - Free-form terminal and deploy triggers are **not** in scope (future candidates);
   git write actions are limited to the safe named allowlist
   (add/commit/branch/switch `approve`-class; push `founder`-class).

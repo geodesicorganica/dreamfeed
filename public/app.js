@@ -21,6 +21,7 @@ let sprintData = null;
 let lifecycleData = null;
 let ledgerData = null;
 let memoryData = null;
+let releaseData = null;
 let pendingPlan = null; // plan awaiting the approval dialog
 // Assistant dock state (in-memory transcripts only; never persisted).
 const assistant = { mode: 'chief-of-staff', busy: false, memoryContext: '', memoryUsed: [], memoryIdsUsed: [], memoryMeta: null, memoryCitations: [], memoryWarnings: [], memoryCitationWarning: null, transcripts: { 'chief-of-staff': [], 'translator': [], 'chat': [] } };
@@ -36,6 +37,7 @@ const view = {
   workScope: null,        // { streamType, containerId, group? } from the navigator
   navCollapsed: {},
   memoryQuery: '', memoryKind: '', memoryState: 'active', memoryScope: '', memoryTag: '', memoryDraft: null,
+  releaseState: '', releaseDraft: null,
   // Wide layouts keep all five regions visible. Narrow layouts start with the
   // inspector collapsed and expose it through the command-bar drawer control.
   inspectorOpen: hasDom ? window.innerWidth > 940 : true, bottomOpen: true, sidebarOpen: false, density: 'comfortable', feedback: [],
@@ -45,7 +47,7 @@ const view = {
 // projections over these lenses; none are discarded by the shell rebuild.
 const LENS_REGISTRY = Object.freeze({
   Queue: { tabs: ['daily', 'work'], defaultTab: 'daily' },
-  Dashboard: { tabs: ['overview', 'memory', 'learning'], defaultTab: 'overview' },
+  Dashboard: { tabs: ['overview', 'memory', 'releases', 'learning'], defaultTab: 'overview' },
   Board: { tabs: ['board', 'queue', 'milestones'], defaultTab: 'board' },
   Table: { tabs: ['sources', 'health'], defaultTab: 'sources' },
   Document: { tabs: ['roadmap', 'review'], defaultTab: 'review' },
@@ -275,6 +277,8 @@ function record(id, type, title, source, fields = {}) {
     relationships: fields.relationships || [], nextAction: fields.nextAction || 'Inspect source',
     sourcePath: source ? source.path : fields.sourcePath || null, sourceLocator: source ? source.locator : '',
     overview: fields.overview || [], memory: fields.memory || null,
+    verificationRecord: fields.verificationRecord || null,
+    releaseCandidate: fields.releaseCandidate || null,
   });
 }
 function memoryLifecycleTrace(memoryId) {
@@ -308,6 +312,61 @@ function recordMemory(memory) {
       ['ID', memory.id], ['Kind', memory.kind], ['Scope', memoryScopeLabel(memory)], ['Confidence', memory.confidence || 'medium'],
       ['Source', sourceLabel], ['Tags', (memory.tags || []).join(', ') || 'none'], ['Version', String(memory.version || 1)],
       ['Hash', String(memory.contentHash || '').slice(0, 16)], ['Warnings', (memory.warnings || []).join(' | ') || 'none'],
+    ],
+  });
+}
+function releaseLifecycleTrace(recordId) {
+  const plans = (lifecycleData?.plans || []).filter((p) =>
+    p.preview?.verificationRecord?.id === recordId || p.preview?.releaseCandidate?.id === recordId || (p.ops || []).some((op) => op.releaseId === recordId));
+  const executions = (lifecycleData?.executions || []).filter((x) =>
+    (x.results || []).some((r) => r.verificationRecord?.id === recordId || r.releaseCandidate?.id === recordId) || plans.some((p) => p.id === x.planId));
+  const events = (ledgerData?.events || []).filter((e) => e.verificationRecordId === recordId || e.releaseId === recordId || executions.some((x) => x.id === e.executionId) || plans.some((p) => p.id === e.planId));
+  return { plans, executions, events };
+}
+function recordVerificationRecord(recordData) {
+  const trace = releaseLifecycleTrace(recordData.id);
+  return record(`verification:${recordData.id}`, 'Verification record', recordData.title, null, {
+    state: recordData.currency ? `${recordData.state} · ${recordData.currency}` : recordData.state,
+    owner: recordData.approvedBy || 'operator',
+    timestamp: recordData.updatedAt || recordData.createdAt,
+    provenance: 'Control-plane sidecar',
+    sourceAuthority: 'verification evidence package; source files, git, and ledger remain authoritative',
+    relationships: [
+      `checks ${(recordData.checks || []).length}`,
+      recordData.ledgerRange?.toSeq ? `ledger through #${recordData.ledgerRange.toSeq}` : 'ledger range unknown',
+      ...trace.plans.map((p) => `plan ${p.id} · ${p.opName} · ${p.status}`),
+      ...trace.executions.map((x) => `execution ${x.id} · ${x.status}`),
+      ...trace.events.slice(-5).map((e) => `ledger #${e.seq} · ${e.type}`),
+    ],
+    nextAction: 'Inspect verification currency before using it as release evidence.',
+    verificationRecord: recordData,
+    overview: [
+      ['ID', recordData.id], ['State', recordData.state], ['Currency', recordData.currency || 'unknown'],
+      ['Checks', String((recordData.checks || []).length)], ['Branch', recordData.gitSnapshot?.branch || 'n/y/s'],
+      ['Version', String(recordData.version || 1)], ['Hash', String(recordData.contentHash || '').slice(0, 16)],
+    ],
+  });
+}
+function recordReleaseCandidate(release) {
+  const trace = releaseLifecycleTrace(release.id);
+  return record(`release:${release.id}`, 'Release candidate', `${release.versionLabel} · ${release.title}`, null, {
+    state: release.state,
+    owner: release.approvedBy || 'operator',
+    timestamp: release.updatedAt || release.createdAt,
+    provenance: 'Control-plane sidecar',
+    sourceAuthority: 'release evidence package; git history and ledger remain authoritative',
+    relationships: [
+      ...(release.verificationRecordIds || []).map((id) => `verification ${id}`),
+      ...trace.plans.map((p) => `plan ${p.id} · ${p.opName} · ${p.status}`),
+      ...trace.executions.map((x) => `execution ${x.id} · ${x.status}`),
+      ...trace.events.slice(-5).map((e) => `ledger #${e.seq} · ${e.type}`),
+    ],
+    nextAction: release.state === 'shipped' ? 'Inspect shipped audit evidence; shipping is founder-confirmed.' : 'Review evidence before changing release state.',
+    releaseCandidate: release,
+    overview: [
+      ['ID', release.id], ['State', release.state], ['Version label', release.versionLabel],
+      ['Verification records', (release.verificationRecordIds || []).join(', ') || 'none'],
+      ['Version', String(release.version || 1)], ['Hash', String(release.contentHash || '').slice(0, 16)],
     ],
   });
 }
@@ -380,6 +439,8 @@ function buildObjectRegistry() {
   });
   state.sources.forEach(recordSourceFile);
   (memoryData?.memories || []).forEach(recordMemory);
+  (releaseData?.verificationRecords || []).forEach(recordVerificationRecord);
+  (releaseData?.releaseCandidates || []).forEach(recordReleaseCandidate);
 }
 
 function selectObject(id, options = {}) {
@@ -762,6 +823,96 @@ function renderMemory() {
     </section>
     ${group('memories', `Governed memories (${memories.length})`, `<div class="cards">${cards}</div>`, memories.length)}`;
 }
+function releaseCountsText(counts = {}) {
+  return `verification ${counts.verificationRecords || 0} · current ${counts.currentVerification || 0} · stale ${counts.staleVerification || 0} · candidates ${counts.candidates || 0} · ready ${counts.ready || 0} · shipped ${counts.shipped || 0}`;
+}
+function currentGitSnapshot() {
+  const h = repoHealth && !repoHealth.fatal ? repoHealth : {};
+  return {
+    branch: h.branch || null,
+    clean: typeof h.clean === 'boolean' ? h.clean : null,
+    counts: h.counts || { staged: 0, unstaged: 0, untracked: 0 },
+    upstream: h.upstream || {},
+    lastCommit: h.lastCommit || {},
+    inspectedAt: h.inspectedAt || null,
+  };
+}
+function currentLedgerRange() {
+  const events = ledgerData?.events || [];
+  const first = events[0] || null;
+  const last = events[events.length - 1] || null;
+  return { fromSeq: first ? first.seq : null, toSeq: last ? last.seq : (ledgerData?.chain?.length || null), chainHash: last ? last.hash : null };
+}
+function currentLifecycleRefs() {
+  const ids = [];
+  (lifecycleData?.plans || []).slice(-20).forEach((p) => ids.push(p.id));
+  (lifecycleData?.executions || []).slice(-20).forEach((x) => ids.push(x.id));
+  return ids;
+}
+function verificationChecksFromCurrentState() {
+  const checks = [];
+  if (repoHealth && !repoHealth.fatal) {
+    checks.push({ label: 'Git working tree', status: repoHealth.clean ? 'pass' : 'warn', source: 'GET /api/repo-health', ranAt: repoHealth.inspectedAt, details: repoHealth.safeReason || '' });
+    checks.push({ label: 'Git upstream readiness', status: repoHealth.upstream?.exists ? 'pass' : 'warn', source: 'GET /api/repo-health', ranAt: repoHealth.inspectedAt, details: repoHealth.upstream?.exists ? `ahead ${repoHealth.upstream.ahead ?? '?'} behind ${repoHealth.upstream.behind ?? '?'}` : 'no upstream configured' });
+    (repoHealth.validationCommands || []).forEach((c) => checks.push({ label: c.label, status: c.status === 'pass' || c.status === 'fail' || c.status === 'never-run' ? c.status : 'unknown', command: c.command, source: c.source, ranAt: c.ranAt, currency: c.currency, details: c.tail || '' }));
+  }
+  checks.push({ label: 'Ledger hash chain', status: ledgerData?.chain?.ok ? 'pass' : 'fail', source: 'GET /api/ledger', ranAt: new Date().toISOString(), details: ledgerData?.chain ? `length ${ledgerData.chain.length}` : 'ledger unavailable' });
+  if (state) checks.push({ label: 'Source projection parse', status: state.fatal ? 'fail' : 'pass', source: 'GET /api/state', ranAt: state.generatedAt, details: `${state.counts?.sources || 0} source files parsed` });
+  return checks.slice(0, 30);
+}
+function releaseEmptyState() {
+  if (releaseData?.error) return `<article class="card error-card"><div class="card-title">Release evidence unavailable</div><p>${esc(releaseData.error)}</p></article>`;
+  if (state?.configured === false) return '<article class="card warn-card"><div class="card-title">No project selected</div><p class="odim">Select a project before recording verification or release evidence.</p></article>';
+  return '';
+}
+function verificationCard(recordData) {
+  return `<article class="card click" data-object-id="verification:${esc(recordData.id)}">
+    <div class="card-head"><div class="card-title">${esc(recordData.title)}</div>${pill(recordData.currency || 'unknown', recordData.currency === 'current' ? 'green' : recordData.currency === 'stale' ? 'amber' : 'grey')}</div>
+    <div class="src">${esc(recordData.id)} · ${esc(recordData.state)} · checks ${(recordData.checks || []).length} · hash ${esc(String(recordData.contentHash || '').slice(0, 12))}</div>
+    <p>${esc(recordData.summary || '')}</p>
+    <div class="src">branch ${esc(recordData.gitSnapshot?.branch || 'n/y/s')} · ledger through #${esc(recordData.ledgerRange?.toSeq || 'n/y/s')} · updated ${esc(recordData.updatedAt || 'n/y/s')}</div>
+  </article>`;
+}
+function releaseCard(release) {
+  return `<article class="card click" data-object-id="release:${esc(release.id)}">
+    <div class="card-head"><div class="card-title">${esc(release.versionLabel)} · ${esc(release.title)}</div>${pill(release.state, release.state === 'shipped' ? 'green' : release.state === 'ready' ? 'blue' : release.state === 'abandoned' ? 'red' : 'amber')}</div>
+    <div class="src">${esc(release.id)} · verification ${(release.verificationRecordIds || []).join(', ') || 'none'} · hash ${esc(String(release.contentHash || '').slice(0, 12))}</div>
+    <p>${esc(release.summary || '')}</p>
+    <div class="queue-actions">
+      ${release.state === 'candidate' ? `<button type="button" class="command-button task-action" data-release-ready="${esc(release.id)}">Mark ready…</button>` : ''}
+      ${release.state === 'ready' ? `<button type="button" class="command-button task-action" data-release-ship="${esc(release.id)}">Mark shipped…</button>` : ''}
+      ${release.state === 'candidate' || release.state === 'ready' ? `<button type="button" class="command-button task-action" data-release-abandon="${esc(release.id)}">Abandon…</button>` : ''}
+    </div>
+  </article>`;
+}
+function renderReleases() {
+  const counts = releaseData?.counts || {};
+  const records = releaseData?.verificationRecords || [];
+  const releases = releaseData?.releaseCandidates || [];
+  const empty = releaseEmptyState();
+  const draft = view.releaseDraft || {};
+  const recordCards = records.length ? records.map(verificationCard).join('') : (empty || '<p class="odim">No verification records yet. Record current evidence before creating a release candidate.</p>');
+  const releaseCards = releases.length ? releases.map(releaseCard).join('') : (empty || '<p class="odim">No release candidates yet.</p>');
+  const defaultTitle = draft.title || `Dreamfeed release ${new Date().toISOString().slice(0, 10)}`;
+  const defaultVersion = draft.versionLabel || `d35-${new Date().toISOString().slice(0, 10).replace(/-/g, '')}`;
+  return `<div class="banner">Release cockpit — sidecar evidence only. It records verification and release candidates; it does not run tests, deploy, tag, push, or create public releases.</div>
+    <section class="owidget">
+      <div class="owidget-head"><h3>Ship readiness</h3><span>${esc(releaseData?.readiness?.state || 'needs-verification')} · ${esc(releaseCountsText(counts))}</span></div>
+      <div class="cards">
+        <article class="card"><div class="card-title">Current evidence snapshot</div><p>${esc(repoHealth?.safeReason || 'repo health unavailable')}</p><div class="src">ledger ${ledgerData?.chain?.ok ? 'ok' : 'not ok'} · branch ${esc(repoHealth?.branch || 'n/y/s')} · tree ${repoHealth?.clean ? 'clean' : 'dirty or unknown'}</div><button type="button" class="command-button primary" data-verification-propose>Record verification…</button></article>
+        <article class="card"><div class="card-title">Evidence export</div><p class="odim">Export is a JSON package for local verification/release evidence. It is not an import or deployment action.</p><button type="button" class="command-button" data-release-export>Export</button></article>
+      </div>
+    </section>
+    <section class="owidget">
+      <div class="owidget-head"><h3>New release candidate</h3><span>approval required</span></div>
+      <div class="assistant-input"><input id="releaseTitle" type="text" value="${esc(defaultTitle)}" placeholder="Release title" autocomplete="off" /><input id="releaseVersion" type="text" value="${esc(defaultVersion)}" placeholder="version label" autocomplete="off" /></div>
+      <div class="assistant-input"><textarea id="releaseSummary" rows="3" placeholder="Release summary">${esc(draft.summary || 'D35 verification and release cockpit evidence package.')}</textarea></div>
+      <div class="assistant-input"><textarea id="releaseRisk" rows="2" placeholder="Risk notes">${esc(draft.riskNotes || 'No deploy, tag, push, or public release action is included.')}</textarea><button type="button" class="command-button primary" data-release-propose ${records.length ? '' : 'disabled'}>Propose release…</button></div>
+      <p class="odim">Uses current verification records: ${esc(records.map((r) => r.id).join(', ') || 'none')}</p>
+    </section>
+    ${group('verification-records', `Verification records (${records.length})`, `<div class="cards">${recordCards}</div>`, records.length)}
+    ${group('release-candidates', `Release candidates (${releases.length})`, `<div class="cards">${releaseCards}</div>`, releases.length)}`;
+}
 function renderSources() { return `<div class="banner">Table lens — source map, schema family, freshness, and parse status. Each row selects the shared inspector.</div><table class="grid"><tr><th>file</th><th>family</th><th>governance type</th><th>status</th><th>freshness</th><th>role</th></tr>${state.sources.map((s) => `<tr data-object-id="source:${esc(s.path)}" class="${view.selectedObjectId === `source:${s.path}` ? 'selected' : ''}"><td>${esc(s.path)}</td><td>${esc(s.schemaFamily)}</td><td>${esc(s.governanceType || '—')}</td><td>${esc(s.fileStatus || '—')}</td><td>${s.freshness?.nys ? 'n/y/s' : `${esc(s.freshness.value.state)} ${esc(s.freshness.value.ageDays)}d/${esc(s.freshness.value.thresholdDays)}d`}</td><td>${s.rendersObjects ? 'renders objects' : 'loaded only'}</td></tr>`).join('')}</table>`; }
 function renderHealth() {
   const h = repoHealth; if (!h) return '<div class="banner">Repo Health loading…</div>'; if (h.fatal) return `<article class="card error-card"><div class="card-title">Repo health error</div><p>${esc(h.fatal)}</p></article>`;
@@ -1062,6 +1213,93 @@ async function exportMemoryData() {
   renderBottomPanel();
 }
 
+async function refreshReleaseData() {
+  const qs = new URLSearchParams();
+  if (view.releaseState) qs.set('state', view.releaseState);
+  try {
+    const res = await guardedFetch(`/api/releases?${qs.toString()}`);
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      throw new Error(data.error || `HTTP ${res.status}`);
+    }
+    releaseData = await res.json();
+  } catch (err) {
+    releaseData = { error: String(err.message || err), counts: {}, readiness: { state: 'unavailable' }, verificationRecords: [], releaseCandidates: [] };
+  }
+}
+
+async function exportReleaseData() {
+  const res = await guardedFetch('/api/releases/export');
+  if (!res.ok) {
+    feedback(`Release export refused (${res.status})`);
+    renderBottomPanel();
+    return;
+  }
+  const data = await res.json();
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = `dreamfeed-release-evidence-v${data.exportVersion || 1}-${String(data.generatedAt || new Date().toISOString()).replace(/[:.]/g, '-')}.json`;
+  link.rel = 'noopener';
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 60000);
+  feedback(`Release evidence export ready: ${data.counts?.verificationRecords || 0} verification · ${data.counts?.candidates || 0} candidates`);
+  renderBottomPanel();
+}
+
+async function planIntent(kind, payload) {
+  const ir = await postMutation('/api/intents', { kind, payload });
+  const iData = await ir.json().catch(() => ({}));
+  if (!ir.ok) return { error: iData.error || `HTTP ${ir.status}` };
+  const pr = await postMutation(`/api/intents/${encodeURIComponent(iData.intent.id)}/plan`, {});
+  const pData = await pr.json().catch(() => ({}));
+  if (!pr.ok) return { error: pData.error || `HTTP ${pr.status}` };
+  return { plan: pData.plan, approval: pData.approval };
+}
+
+async function proposeVerificationRecord() {
+  const payload = {
+    title: `Verification snapshot ${new Date().toISOString().slice(0, 10)}`,
+    summary: `Recorded current repo health, lifecycle, and ledger evidence for ${project?.label || 'the active project'}.`,
+    checks: verificationChecksFromCurrentState(),
+    gitSnapshot: currentGitSnapshot(),
+    ledgerRange: currentLedgerRange(),
+    lifecycleRefs: currentLifecycleRefs(),
+    source: { type: 'repo-health', ref: repoHealth?.inspectedAt || 'current snapshot' },
+  };
+  const out = await planIntent('verification-record-create', payload);
+  if (out.error) { feedback(`Verification plan refused: ${out.error}`); render(); return; }
+  openApprovalDialog(out.plan);
+}
+
+async function proposeReleaseCandidate() {
+  const records = (releaseData?.verificationRecords || []).filter((r) => r.state === 'recorded');
+  if (!records.length) { feedback('Release candidate needs at least one verification record'); renderBottomPanel(); return; }
+  const payload = {
+    title: $('#releaseTitle')?.value.trim() || `Dreamfeed release ${new Date().toISOString().slice(0, 10)}`,
+    versionLabel: $('#releaseVersion')?.value.trim() || `d35-${new Date().toISOString().slice(0, 10).replace(/-/g, '')}`,
+    summary: $('#releaseSummary')?.value.trim() || 'Release candidate evidence package.',
+    riskNotes: $('#releaseRisk')?.value.trim() || '',
+    verificationRecordIds: records.map((r) => r.id),
+    includedPlanIds: (lifecycleData?.plans || []).slice(-20).map((p) => p.id),
+    includedExecutionIds: (lifecycleData?.executions || []).slice(-20).map((x) => x.id),
+    ledgerRange: currentLedgerRange(),
+    gitSnapshot: currentGitSnapshot(),
+  };
+  const out = await planIntent('release-candidate-upsert', payload);
+  if (out.error) { feedback(`Release plan refused: ${out.error}`); render(); return; }
+  openApprovalDialog(out.plan);
+}
+
+async function runReleaseStateIntent(kind, releaseId) {
+  const out = await planIntent(kind, { releaseId });
+  if (out.error) { feedback(`Release state plan refused: ${out.error}`); render(); return; }
+  openApprovalDialog(out.plan);
+}
+
 function pendingApprovals() {
   // 'planned' non-auto plans await approval; 'approved' plans (any class,
   // including an auto plan whose execution failed) await a retry of execute —
@@ -1251,6 +1489,33 @@ function memoryInspectorActions(item) {
   return `${sourceAction}<button type="button" class="inspector-action" data-memory-edit="${esc(memory.id)}">Propose memory update…</button>${memory.state === 'active' ? `<button type="button" class="inspector-action" data-memory-archive="${esc(memory.id)}">Archive through approval…</button>` : ''}<button type="button" class="inspector-action" data-memory-delete="${esc(memory.id)}">Hard delete through founder approval…</button>`;
 }
 
+function renderReleaseOverview(item) {
+  const recordData = item.verificationRecord;
+  const release = item.releaseCandidate;
+  const data = recordData || release;
+  const trace = releaseLifecycleTrace(data.id);
+  const lifecycle = `<div class="detail-sec">Lifecycle trace</div><dl class="inspector-kv"><dt>Plans</dt><dd>${esc(trace.plans.map((p) => `${p.id} ${p.opName} ${p.status}`).join(' | ') || 'none in loaded sidecar')}</dd><dt>Executions</dt><dd>${esc(trace.executions.map((x) => `${x.id} ${x.status}`).join(' | ') || 'none in loaded sidecar')}</dd><dt>Ledger</dt><dd>${esc(trace.events.slice(-6).map((e) => `#${e.seq} ${e.type}`).join(' | ') || 'none in loaded page')}</dd></dl>`;
+  if (recordData) {
+    const checks = (recordData.checks || []).map((c) => `<li>${esc(c.label)} · ${esc(c.status)}${c.currency ? ` · ${esc(c.currency)}` : ''}${c.command ? ` · ${esc(c.command)}` : ''}</li>`).join('');
+    return `<div class="banner">Verification provenance inspector — sidecar evidence only. Git state, source files, and ledger records remain authoritative.</div>
+      <dl class="inspector-kv"><dt>ID</dt><dd>${esc(recordData.id)}</dd><dt>State</dt><dd>${esc(recordData.state)}</dd><dt>Currency</dt><dd>${esc(recordData.currency || 'unknown')}</dd><dt>Branch</dt><dd>${esc(recordData.gitSnapshot?.branch || 'n/y/s')}</dd><dt>Ledger range</dt><dd>${esc(`${recordData.ledgerRange?.fromSeq || '?'} to ${recordData.ledgerRange?.toSeq || '?'}`)}</dd><dt>Approved by</dt><dd>${esc(recordData.approvedBy || 'operator')}</dd><dt>Version</dt><dd>${esc(recordData.version || 1)}</dd><dt>Content hash</dt><dd>${esc(recordData.contentHash || 'n/y/s')}</dd></dl>
+      <div class="detail-sec">Checks</div><ul class="detail-list">${checks || '<li>No checks recorded.</li>'}</ul>
+      <div class="detail-sec">Summary</div><p>${esc(recordData.summary || '')}</p>${lifecycle}`;
+  }
+  return `<div class="banner">Release provenance inspector — sidecar evidence only. It does not deploy, tag, push, or create public releases.</div>
+    <dl class="inspector-kv"><dt>ID</dt><dd>${esc(release.id)}</dd><dt>State</dt><dd>${esc(release.state)}</dd><dt>Version label</dt><dd>${esc(release.versionLabel)}</dd><dt>Verification records</dt><dd>${esc((release.verificationRecordIds || []).join(', ') || 'none')}</dd><dt>Ledger range</dt><dd>${esc(`${release.ledgerRange?.fromSeq || '?'} to ${release.ledgerRange?.toSeq || '?'}`)}</dd><dt>Approved by</dt><dd>${esc(release.approvedBy || 'operator')}</dd><dt>Shipped at</dt><dd>${esc(release.shippedAt || 'not shipped')}</dd><dt>Version</dt><dd>${esc(release.version || 1)}</dd><dt>Content hash</dt><dd>${esc(release.contentHash || 'n/y/s')}</dd></dl>
+    <div class="detail-sec">Summary</div><p>${esc(release.summary || '')}</p>
+    <div class="detail-sec">Risk notes</div><p>${esc(release.riskNotes || 'none')}</p>${lifecycle}`;
+}
+
+function releaseInspectorActions(item) {
+  const release = item.releaseCandidate;
+  if (!release) return '<p class="odim">Verification records are immutable evidence snapshots in D35 v1.</p>';
+  if (release.state === 'candidate') return `<button type="button" class="inspector-action" data-release-ready="${esc(release.id)}">Mark ready through approval…</button><button type="button" class="inspector-action" data-release-abandon="${esc(release.id)}">Abandon through approval…</button>`;
+  if (release.state === 'ready') return `<button type="button" class="inspector-action" data-release-ship="${esc(release.id)}">Mark shipped through founder approval…</button><button type="button" class="inspector-action" data-release-abandon="${esc(release.id)}">Abandon through approval…</button>`;
+  return '<p class="odim">Terminal release states are audit-only in D35 v1.</p>';
+}
+
 function renderInspector() {
   const inspector = $('#inspector'); if (!inspector) return;
   if (view.rightMode === 'assistant') { renderAssistant(inspector); return; }
@@ -1264,12 +1529,16 @@ function renderInspector() {
   }
   const overview = item.memory
     ? renderMemoryOverview(item)
+    : (item.verificationRecord || item.releaseCandidate)
+      ? renderReleaseOverview(item)
     : `<dl class="inspector-kv"><dt>Type</dt><dd>${esc(item.type)}</dd><dt>State</dt><dd>${esc(item.state)}</dd><dt>Owner / authority</dt><dd>${esc(item.owner)} · ${esc(item.sourceAuthority)}</dd><dt>Timestamp</dt><dd>${esc(item.timestamp)}</dd><dt>Provenance</dt><dd>${esc(item.provenance)}</dd>${item.overview.map(([k, v]) => `<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join('')}</dl>${item.sourcePath ? '' : '<p class="odim">No directly viewable source file is available for this derived object.</p>'}`;
   const evidence = renderEvidenceView(item);
   const relationships = item.relationships.length ? `<ul class="detail-list">${item.relationships.map((r) => `<li>${esc(r)}</li>`).join('')}</ul>` : '<p class="odim">No source-backed relationship is structured for this selection.</p>';
   const content = view.inspectorTab === 'evidence' ? evidence : view.inspectorTab === 'relationships' ? relationships : overview;
   const sourceAction = item.memory
     ? memoryInspectorActions(item)
+    : (item.verificationRecord || item.releaseCandidate)
+      ? releaseInspectorActions(item)
     : item.sourcePath ? `<button type="button" class="inspector-action" data-evidence-path="${esc(item.sourcePath)}">Load read-only source → ${esc(item.sourcePath)}</button><button type="button" class="inspector-action" data-memory-from-source="${esc(item.id)}">Propose memory from source…</button>` : '';
   inspector.innerHTML = `${modeTabs}<div class="inspector-head"><div class="region-label">Selected object</div><h2>${esc(item.title)}</h2><div class="inspector-id">${esc(item.id)}</div></div><div class="inspector-tabs"><button type="button" data-inspector-tab="overview" class="${view.inspectorTab === 'overview' ? 'active' : ''}">Overview</button><button type="button" data-inspector-tab="evidence" class="${view.inspectorTab === 'evidence' ? 'active' : ''}">Evidence</button><button type="button" data-inspector-tab="relationships" class="${view.inspectorTab === 'relationships' ? 'active' : ''}">Relationships</button></div><div class="inspector-body">${content}${sourceAction}<div class="detail-sec">Read-only action</div><p class="odim">${esc(item.nextAction)}</p></div>`;
   inspector.querySelectorAll('[data-inspector-tab]').forEach((button) => button.addEventListener('click', () => { view.inspectorTab = button.dataset.inspectorTab; renderInspector(); }));
@@ -1282,6 +1551,9 @@ function renderInspector() {
   inspector.querySelectorAll('[data-memory-edit]').forEach((button) => button.addEventListener('click', () => editMemory(button.dataset.memoryEdit)));
   inspector.querySelectorAll('[data-memory-archive]').forEach((button) => button.addEventListener('click', () => runMemoryStateIntent('memory-archive', button.dataset.memoryArchive)));
   inspector.querySelectorAll('[data-memory-delete]').forEach((button) => button.addEventListener('click', () => runMemoryStateIntent('memory-delete', button.dataset.memoryDelete)));
+  inspector.querySelectorAll('[data-release-ready]').forEach((button) => button.addEventListener('click', () => runReleaseStateIntent('release-mark-ready', button.dataset.releaseReady)));
+  inspector.querySelectorAll('[data-release-ship]').forEach((button) => button.addEventListener('click', () => runReleaseStateIntent('release-mark-shipped', button.dataset.releaseShip)));
+  inspector.querySelectorAll('[data-release-abandon]').forEach((button) => button.addEventListener('click', () => runReleaseStateIntent('release-abandon', button.dataset.releaseAbandon)));
   inspector.querySelectorAll('[data-evidence-mode]').forEach((button) => button.addEventListener('click', () => { view.evidenceMode = button.dataset.evidenceMode; renderInspector(); }));
   wireModeTabs();
 }
@@ -1403,7 +1675,7 @@ function render() {
   const select = $('#filterStatus'); const chosen = view.filterStatus;
   select.innerHTML = '<option value="">All states</option>' + statusOptions().map((s) => `<option value="${esc(s)}"${s === chosen ? ' selected' : ''}>${esc(s)}</option>`).join('');
   $('#loadMeta').textContent = `as of ${state.asOfDate} · reads source-backed · writes governed (D31)`;
-  const screens = { daily: renderDaily, work: renderWork, overview: renderOverview, memory: renderMemory, board: renderBoard, queue: renderQueue, topology: renderTopology, roadmap: renderRoadmap, milestones: renderMilestones, review: renderReview, learning: renderLearning, sources: renderSources, health: renderHealth };
+  const screens = { daily: renderDaily, work: renderWork, overview: renderOverview, memory: renderMemory, releases: renderReleases, board: renderBoard, queue: renderQueue, topology: renderTopology, roadmap: renderRoadmap, milestones: renderMilestones, review: renderReview, learning: renderLearning, sources: renderSources, health: renderHealth };
   $('#main').innerHTML = (screens[view.tab] || renderDaily)();
   renderWorkNav(); renderInspector(); renderBottomPanel(); wireDynamic();
 }
@@ -1463,6 +1735,12 @@ function wireDynamic() {
   main.querySelectorAll('[data-memory-edit]').forEach((el) => el.addEventListener('click', (event) => { event.stopPropagation(); editMemory(el.dataset.memoryEdit); }));
   main.querySelectorAll('[data-memory-archive]').forEach((el) => el.addEventListener('click', (event) => { event.stopPropagation(); runMemoryStateIntent('memory-archive', el.dataset.memoryArchive); }));
   main.querySelectorAll('[data-memory-delete]').forEach((el) => el.addEventListener('click', (event) => { event.stopPropagation(); runMemoryStateIntent('memory-delete', el.dataset.memoryDelete); }));
+  main.querySelectorAll('[data-verification-propose]').forEach((el) => el.addEventListener('click', (event) => { event.stopPropagation(); el.disabled = true; proposeVerificationRecord(); }));
+  main.querySelectorAll('[data-release-propose]').forEach((el) => el.addEventListener('click', (event) => { event.stopPropagation(); el.disabled = true; proposeReleaseCandidate(); }));
+  main.querySelectorAll('[data-release-export]').forEach((el) => el.addEventListener('click', (event) => { event.stopPropagation(); exportReleaseData(); }));
+  main.querySelectorAll('[data-release-ready]').forEach((el) => el.addEventListener('click', (event) => { event.stopPropagation(); runReleaseStateIntent('release-mark-ready', el.dataset.releaseReady); }));
+  main.querySelectorAll('[data-release-ship]').forEach((el) => el.addEventListener('click', (event) => { event.stopPropagation(); runReleaseStateIntent('release-mark-shipped', el.dataset.releaseShip); }));
+  main.querySelectorAll('[data-release-abandon]').forEach((el) => el.addEventListener('click', (event) => { event.stopPropagation(); runReleaseStateIntent('release-abandon', el.dataset.releaseAbandon); }));
   // Governed task transitions (D31): every click is an intent through the
   // lifecycle; auto-class runs immediately (ledgered), others open approval.
   main.querySelectorAll('[data-transition]').forEach((el) => el.addEventListener('click', (event) => {
@@ -1498,6 +1776,7 @@ async function load(attempt = 0) {
     try { lifecycleData = await (await fetch('/api/lifecycle', { cache: 'no-store' })).json(); } catch { lifecycleData = null; }
     try { ledgerData = await (await fetch('/api/ledger', { cache: 'no-store' })).json(); } catch { ledgerData = null; }
     await refreshMemoryData();
+    await refreshReleaseData();
     buildObjectRegistry(); updateProjectLabel(); feedback('Source-backed state refreshed'); render();
   } catch (err) {
     $('#main').innerHTML = `<article class="card error-card"><div class="card-title">Load failed</div><pre class="evidence-content">${esc(String(err))}</pre></article>`;

@@ -47,13 +47,13 @@ test('explicit lens registry maps every retained Command Center tab', () => {
   const registry = lensRegistry();
   assert.deepEqual(Object.keys(registry), ['Queue', 'Dashboard', 'Board', 'Table', 'Document', 'IDE', 'Topology']);
   assert.deepEqual(registry.Queue, { tabs: ['daily', 'work'], defaultTab: 'daily' });
-  assert.deepEqual(registry.Dashboard, { tabs: ['overview', 'memory', 'learning'], defaultTab: 'overview' });
+  assert.deepEqual(registry.Dashboard, { tabs: ['overview', 'memory', 'releases', 'learning'], defaultTab: 'overview' });
   assert.deepEqual(registry.Board, { tabs: ['board', 'queue', 'milestones'], defaultTab: 'board' });
   assert.deepEqual(registry.Table, { tabs: ['sources', 'health'], defaultTab: 'sources' });
   assert.deepEqual(registry.Document, { tabs: ['roadmap', 'review'], defaultTab: 'review' });
   assert.deepEqual(registry.IDE, { tabs: ['review'], defaultTab: 'review', inspectorMode: 'evidence' });
   assert.deepEqual(registry.Topology, { tabs: ['topology'], defaultTab: 'topology' });
-  for (const tab of ['daily', 'work', 'overview', 'memory', 'board', 'queue', 'topology', 'roadmap', 'milestones', 'review', 'learning', 'sources', 'health']) {
+  for (const tab of ['daily', 'work', 'overview', 'memory', 'releases', 'board', 'queue', 'topology', 'roadmap', 'milestones', 'review', 'learning', 'sources', 'health']) {
     assert.match(html, new RegExp(`data-tab="${tab}"`), `retained module tab is missing: ${tab}`);
   }
   assert.match(app, /function goLens\(lens\)/, 'lens control resolves to a retained default tab');
@@ -104,6 +104,13 @@ test('Gate G surfaces: workstream navigator, queue lens, approval dialog, assist
   assert.match(app, /contextMeta/, 'assistant exposes memory context cap metadata');
   assert.match(app, /memoryCitations/, 'assistant exposes memory citation metadata');
   assert.match(app, /memoryCitationWarning/, 'assistant exposes missing-citation warnings');
+  assert.match(app, /function renderReleases\(\)/, 'D35 release cockpit lens exists');
+  assert.match(app, /data-verification-propose/, 'verification records are proposed through the release lens');
+  assert.match(app, /data-release-propose/, 'release candidates are proposed through the release lens');
+  assert.match(app, /data-release-ship/, 'shipped state is explicit and founder-classed through lifecycle');
+  assert.match(app, /dreamfeed-release-evidence-v/, 'release evidence export uses a deterministic JSON filename');
+  assert.match(app, /function renderReleaseOverview\(/, 'release and verification records use the shared provenance inspector');
+  assert.match(app, /\/api\/releases/, 'release lens reads guarded release APIs');
 });
 
 test('selection is derived over existing state and routes evidence into the shared inspector', () => {

@@ -29,6 +29,12 @@ const {
   safeMemorySummary,
   memoryCounts,
 } = require('./memory');
+const {
+  listVerificationRecords,
+  listReleaseCandidates,
+  exportReleaseEvidence,
+  releaseCounts,
+} = require('./release');
 const { REPO_ROOT, canonicalRoot, canonicalKey, rootToken } = require('./parse');
 const projectPicker = require('./projectPicker');
 
@@ -746,6 +752,60 @@ const server = http.createServer((req, res) => {
         repoRoot: currentRoot,
         includeDeleted: params.get('includeDeleted') === '1',
         includeArchived: params.get('includeArchived') !== '0',
+      }));
+    } catch (err) { sendJson(res, 500, { fatal: String(err.message || err) }); }
+    return;
+  }
+  if (url === '/api/verification') {
+    if (!guardSensitiveRead(req, res)) return;
+    try {
+      const repoHealth = getRepoHealth(currentRoot);
+      const ledgerChain = verifyChain();
+      const records = listVerificationRecords({
+        repoRoot: currentRoot,
+        state: params.get('state') || undefined,
+        repoHealth,
+        ledgerChain,
+      });
+      const releases = listReleaseCandidates({ repoRoot: currentRoot });
+      sendJson(res, 200, {
+        rootToken: currentRoot ? rootToken(currentRoot) : null,
+        counts: releaseCounts(records, releases),
+        verificationRecords: records,
+      });
+    } catch (err) { sendJson(res, 500, { fatal: String(err.message || err) }); }
+    return;
+  }
+  if (url === '/api/releases') {
+    if (!guardSensitiveRead(req, res)) return;
+    try {
+      const repoHealth = getRepoHealth(currentRoot);
+      const ledgerChain = verifyChain();
+      const records = listVerificationRecords({ repoRoot: currentRoot, repoHealth, ledgerChain });
+      const releases = listReleaseCandidates({ repoRoot: currentRoot, state: params.get('state') || undefined });
+      const counts = releaseCounts(records, releases);
+      sendJson(res, 200, {
+        rootToken: currentRoot ? rootToken(currentRoot) : null,
+        readiness: {
+          state: ledgerChain.ok && counts.currentVerification ? 'ready-to-candidate' : 'needs-verification',
+          ledgerOk: !!ledgerChain.ok,
+          currentVerification: counts.currentVerification,
+          staleVerification: counts.staleVerification,
+        },
+        counts,
+        verificationRecords: records,
+        releaseCandidates: releases,
+      });
+    } catch (err) { sendJson(res, 500, { fatal: String(err.message || err) }); }
+    return;
+  }
+  if (url === '/api/releases/export') {
+    if (!guardSensitiveRead(req, res)) return;
+    try {
+      sendJson(res, 200, exportReleaseEvidence({
+        repoRoot: currentRoot,
+        repoHealth: getRepoHealth(currentRoot),
+        ledgerChain: verifyChain(),
       }));
     } catch (err) { sendJson(res, 500, { fatal: String(err.message || err) }); }
     return;

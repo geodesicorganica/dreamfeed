@@ -49,15 +49,31 @@
   use. These warnings do not arbitrate truth; source files and ledger records
   remain authoritative.
 
+## Verification and release cockpit addendum (D35, 2026-07-07)
+
+- **Evidence sidecar.** Verification records and release candidates persist in
+  `.dreamfeed/records.json` schema v3. They are local evidence packages, never
+  source truth, and every write goes through the governed lifecycle.
+- **Guarded reads.** Verification/release list and export APIs are GET-only but
+  action-token guarded because they disclose local project state, git metadata,
+  lifecycle IDs, and release notes.
+- **Ledger minimization.** Ledger events record verification/release IDs,
+  states, and content hashes only. Full summaries, check details, release notes,
+  and risk notes stay in the sidecar and are excluded from ledger event bodies.
+- **No release automation.** D35 does not run tests, deploy, tag, push, create
+  GitHub releases, or provide terminal access. Shipped marking is founder-class
+  evidence, not an external release action.
+
 ## Data retention policy
 
 Ephemeral UI state stays in memory; the Gate G/D33 control-plane sidecar
 persists as described above. A process restart clears session/UI state and
-assistant transcripts but keeps lifecycle records, approved memories, and the
-ledger. The future persisted control plane must store each record with schema
-version, organization/workspace/project scope, retention class, export format,
-deletion eligibility, and source-authority classification. Repository sources
-remain in their repository and are governed by repository retention policies.
+assistant transcripts but keeps lifecycle records, approved memories,
+verification records, release candidates, and the ledger. The future persisted
+control plane must store each record with schema version, organization/
+workspace/project scope, retention class, export format, deletion eligibility,
+and source-authority classification. Repository sources remain in their
+repository and are governed by repository retention policies.
 
 Secrets are excluded from every export. On import, connectors re-enter pending
 authorization and require fresh credential provisioning. Traces retain redacted

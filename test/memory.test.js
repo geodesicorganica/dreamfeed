@@ -28,7 +28,7 @@ const {
 } = require('../src/memory');
 const { readLedger } = require('../src/commands/ledger');
 
-test('store: v1 sidecar migrates to v2 without losing lifecycle records', () => {
+test('store: v1 sidecar migrates to v3 without losing lifecycle records', () => {
   fs.writeFileSync(path.join(STATE, 'records.json'), JSON.stringify({
     schemaVersion: 1,
     counter: 7,
@@ -40,10 +40,12 @@ test('store: v1 sidecar migrates to v2 without losing lifecycle records', () => 
 
   const snap = store.snapshot();
   const raw = JSON.parse(fs.readFileSync(path.join(STATE, 'records.json'), 'utf8'));
-  assert.strictEqual(raw.schemaVersion, 2);
+  assert.strictEqual(raw.schemaVersion, store.SCHEMA_VERSION);
   assert.deepStrictEqual(snap.intents.map((i) => i.id), ['int_1']);
   assert.deepStrictEqual(snap.plans.map((p) => p.id), ['pln_1']);
   assert.deepStrictEqual(snap.memories, []);
+  assert.deepStrictEqual(snap.verificationRecords, []);
+  assert.deepStrictEqual(snap.releaseCandidates, []);
 });
 
 test('store: unsupported future sidecars are not overwritten with empty state', () => {
@@ -56,6 +58,8 @@ test('store: unsupported future sidecars are not overwritten with empty state', 
     approvals: {},
     executions: {},
     memories: {},
+    verificationRecords: {},
+    releaseCandidates: {},
   };
   const before = JSON.stringify(future, null, 1);
   fs.writeFileSync(file, before, 'utf8');
@@ -72,6 +76,8 @@ test('store: unsupported future sidecars are not overwritten with empty state', 
       approvals: {},
       executions: {},
       memories: {},
+      verificationRecords: {},
+      releaseCandidates: {},
     }), 'utf8');
   }
 });

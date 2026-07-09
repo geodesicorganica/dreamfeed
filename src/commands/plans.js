@@ -11,6 +11,13 @@ const { hashText } = require('../write');
 const { findTask, TASK_STATUS } = require('../nativeSchema');
 const { readManifest, MANIFEST_NODE_KINDS, MANIFEST_EDGE_TYPES } = require('../topology');
 const { draftMemory, getVisibleMemory, safeMemorySummary } = require('../memory');
+const {
+  draftVerificationRecord,
+  draftReleaseCandidate,
+  requireVisibleRelease,
+  safeVerificationSummary,
+  safeReleaseSummary,
+} = require('../release');
 const { classFor } = require('./policy');
 
 // Safe named git actions (D31 step 5 scope). First token is the subcommand;
@@ -79,6 +86,10 @@ function planHashOf(plan) {
       args: o.args,
       memoryId: o.memoryId,
       memoryHash: o.draft ? o.draft.contentHash : o.memoryHash,
+      verificationRecordHash: o.type === 'verification-record-create' && o.draft ? o.draft.contentHash : undefined,
+      releaseId: o.releaseId,
+      releaseHash: o.type && o.type.startsWith('release-') && o.draft ? o.draft.contentHash : o.releaseHash,
+      nextState: o.nextState,
     })),
   };
   return crypto.createHash('sha256').update(JSON.stringify(bound), 'utf8').digest('hex');
@@ -235,6 +246,55 @@ function planMemoryStateChange(intent, repoRoot, opName, nextState) {
   };
 }
 
+function planVerificationRecordCreate(intent, repoRoot) {
+  const drafted = draftVerificationRecord(intent.payload || {}, { repoRoot });
+  if (drafted.error) return drafted;
+  return {
+    opName: 'verification-record-create',
+    summary: `record verification: ${drafted.record.title}`,
+    ops: [{ type: 'verification-record-create', draft: drafted.record }],
+    preview: { verificationRecord: safeVerificationSummary(drafted.record), checks: drafted.record.checks },
+  };
+}
+
+function planReleaseCandidateUpsert(intent, repoRoot) {
+  const p = intent.payload || {};
+  const drafted = draftReleaseCandidate(p, { repoRoot });
+  if (drafted.error) return drafted;
+  let existing = null;
+  if (p.releaseId) {
+    const found = requireVisibleRelease(String(p.releaseId), repoRoot);
+    if (found.error) return found;
+    existing = found.release;
+  }
+  return {
+    opName: 'release-candidate-upsert',
+    summary: `${existing ? 'update' : 'create'} release candidate ${drafted.release.versionLabel}: ${drafted.release.title}`,
+    ops: [{
+      type: 'release-candidate-upsert',
+      releaseId: existing ? existing.id : null,
+      baseHash: existing ? existing.contentHash : null,
+      draft: drafted.release,
+    }],
+    preview: { releaseCandidate: safeReleaseSummary(drafted.release), prior: safeReleaseSummary(existing) },
+  };
+}
+
+function planReleaseStateChange(intent, repoRoot, opName, nextState) {
+  const releaseId = String((intent.payload || {}).releaseId || '').trim();
+  if (!releaseId) return { error: 'releaseId required', code: 'validation' };
+  const found = requireVisibleRelease(releaseId, repoRoot);
+  if (found.error) return found;
+  if (found.release.state === 'shipped' || found.release.state === 'abandoned') return { error: `release candidate is already ${found.release.state}`, code: 'state' };
+  if (nextState === 'shipped' && found.release.state !== 'ready') return { error: 'release must be ready before it can be shipped', code: 'state' };
+  return {
+    opName,
+    summary: `${nextState} release ${releaseId}: ${found.release.title}`,
+    ops: [{ type: opName, releaseId, baseHash: found.release.contentHash, nextState }],
+    preview: { releaseCandidate: safeReleaseSummary(found.release), nextState },
+  };
+}
+
 // Compute a plan for an intent. Returns { plan } or { error, code }.
 function computePlan(intent, { repoRoot, policy }) {
   if (!repoRoot) return { error: 'no project configured', code: 'no-project' };
@@ -244,6 +304,11 @@ function computePlan(intent, { repoRoot, policy }) {
   else if (intent.kind === 'memory-upsert') core = planMemoryUpsert(intent, repoRoot);
   else if (intent.kind === 'memory-archive') core = planMemoryStateChange(intent, repoRoot, 'memory-archive', 'archived');
   else if (intent.kind === 'memory-delete') core = planMemoryStateChange(intent, repoRoot, 'memory-delete', 'deleted-tombstone');
+  else if (intent.kind === 'verification-record-create') core = planVerificationRecordCreate(intent, repoRoot);
+  else if (intent.kind === 'release-candidate-upsert') core = planReleaseCandidateUpsert(intent, repoRoot);
+  else if (intent.kind === 'release-mark-ready') core = planReleaseStateChange(intent, repoRoot, 'release-mark-ready', 'ready');
+  else if (intent.kind === 'release-abandon') core = planReleaseStateChange(intent, repoRoot, 'release-abandon', 'abandoned');
+  else if (intent.kind === 'release-mark-shipped') core = planReleaseStateChange(intent, repoRoot, 'release-mark-shipped', 'shipped');
   else if (GIT_OPS[intent.kind]) core = planGit(intent);
   else return { error: `unknown intent kind "${intent.kind}"`, code: 'validation' };
   if (core.error) return core;
@@ -276,6 +341,12 @@ function checkDrift(plan, repoRoot) {
     const current = getVisibleMemory(op.memoryId, repoRoot);
     if (current.error) return { drifted: true, path: op.memoryId };
     if (current.memory.contentHash !== op.baseHash) return { drifted: true, path: op.memoryId };
+  }
+  for (const op of plan.ops) {
+    if (!op.type || !op.type.startsWith('release-') || !op.releaseId) continue;
+    const current = requireVisibleRelease(op.releaseId, repoRoot);
+    if (current.error) return { drifted: true, path: op.releaseId };
+    if (current.release.contentHash !== op.baseHash) return { drifted: true, path: op.releaseId };
   }
   return { drifted: false };
 }

@@ -7,7 +7,7 @@
 const fs = require('fs');
 const path = require('path');
 
-const SCHEMA_VERSION = 2;
+const SCHEMA_VERSION = 3;
 const APP_ROOT = path.resolve(__dirname, '..', '..');
 
 // Test isolation: suites point DREAMFEED_STATE_DIR at a temp dir so runs never
@@ -18,15 +18,25 @@ function stateDir() {
 function recordsFile() { return path.join(stateDir(), 'records.json'); }
 
 function emptyRecords() {
-  return { schemaVersion: SCHEMA_VERSION, counter: 0, intents: {}, plans: {}, approvals: {}, executions: {}, memories: {} };
+  return {
+    schemaVersion: SCHEMA_VERSION,
+    counter: 0,
+    intents: {},
+    plans: {},
+    approvals: {},
+    executions: {},
+    memories: {},
+    verificationRecords: {},
+    releaseCandidates: {},
+  };
 }
 
 function migrate(rec) {
   if (!rec || typeof rec !== 'object') throw new Error('unsupported records schemaVersion: missing');
   if (rec.schemaVersion === SCHEMA_VERSION) {
-    return { ...emptyRecords(), ...rec, memories: rec.memories || {} };
+    return { ...emptyRecords(), ...rec, memories: rec.memories || {}, verificationRecords: rec.verificationRecords || {}, releaseCandidates: rec.releaseCandidates || {} };
   }
-  if (rec.schemaVersion === 1) {
+  if (rec.schemaVersion === 1 || rec.schemaVersion === 2) {
     return {
       schemaVersion: SCHEMA_VERSION,
       counter: Number.isInteger(rec.counter) ? rec.counter : 0,
@@ -34,7 +44,9 @@ function migrate(rec) {
       plans: rec.plans || {},
       approvals: rec.approvals || {},
       executions: rec.executions || {},
-      memories: {},
+      memories: rec.schemaVersion === 2 ? (rec.memories || {}) : {},
+      verificationRecords: {},
+      releaseCandidates: {},
     };
   }
   throw new Error(`unsupported records schemaVersion: ${rec.schemaVersion == null ? 'missing' : rec.schemaVersion}`);
@@ -46,7 +58,7 @@ function load() {
     rec = JSON.parse(fs.readFileSync(recordsFile(), 'utf8'));
   } catch { return emptyRecords(); }
   const migrated = migrate(rec);
-  if (rec.schemaVersion === 1 && migrated.schemaVersion === SCHEMA_VERSION) save(migrated);
+  if ((rec.schemaVersion === 1 || rec.schemaVersion === 2) && migrated.schemaVersion === SCHEMA_VERSION) save(migrated);
   return migrated;
 }
 
@@ -86,7 +98,15 @@ function list(kind) {
 }
 function snapshot() {
   const rec = load();
-  return { intents: Object.values(rec.intents), plans: Object.values(rec.plans), approvals: Object.values(rec.approvals), executions: Object.values(rec.executions), memories: Object.values(rec.memories) };
+  return {
+    intents: Object.values(rec.intents),
+    plans: Object.values(rec.plans),
+    approvals: Object.values(rec.approvals),
+    executions: Object.values(rec.executions),
+    memories: Object.values(rec.memories),
+    verificationRecords: Object.values(rec.verificationRecords),
+    releaseCandidates: Object.values(rec.releaseCandidates),
+  };
 }
 
 module.exports = { stateDir, create, put, get, list, snapshot, SCHEMA_VERSION };

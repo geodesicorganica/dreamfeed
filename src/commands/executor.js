@@ -15,6 +15,13 @@ const {
   applyMemoryDelete,
   safeMemorySummary,
 } = require('../memory');
+const {
+  applyVerificationRecordCreate,
+  applyReleaseCandidateUpsert,
+  applyReleaseState,
+  safeVerificationSummary,
+  safeReleaseSummary,
+} = require('../release');
 const { checkDrift } = require('./plans');
 const store = require('./store');
 const { appendEvent } = require('./ledger');
@@ -101,6 +108,24 @@ function executePlan(plan, { actor = 'operator', health } = {}, repoRoot) {
         const memory = safeMemorySummary(out.memory);
         execution.results.push({ op: i, type: 'memory-delete', ok: true, memory });
         appendEvent({ type: 'op-applied', actor, executionId: execution.id, op: i, kind: 'memory-delete', memoryId: memory.id, memoryHash: memory.contentHash, state: memory.state });
+      } else if (op.type === 'verification-record-create') {
+        const out = applyVerificationRecordCreate({ draft: op.draft, actor }, repoRoot);
+        if (out.error) throw Object.assign(new Error(out.error), { code: out.code });
+        const record = safeVerificationSummary(out.record);
+        execution.results.push({ op: i, type: 'verification-record-create', ok: true, verificationRecord: record });
+        appendEvent({ type: 'op-applied', actor, executionId: execution.id, op: i, kind: 'verification-record-create', verificationRecordId: record.id, verificationHash: record.contentHash, state: record.state });
+      } else if (op.type === 'release-candidate-upsert') {
+        const out = applyReleaseCandidateUpsert({ releaseId: op.releaseId, draft: op.draft, actor }, repoRoot);
+        if (out.error) throw Object.assign(new Error(out.error), { code: out.code });
+        const release = safeReleaseSummary(out.release);
+        execution.results.push({ op: i, type: 'release-candidate-upsert', ok: true, releaseCandidate: release });
+        appendEvent({ type: 'op-applied', actor, executionId: execution.id, op: i, kind: 'release-candidate-upsert', releaseId: release.id, releaseHash: release.contentHash, state: release.state });
+      } else if (op.type === 'release-mark-ready' || op.type === 'release-abandon' || op.type === 'release-mark-shipped') {
+        const out = applyReleaseState({ releaseId: op.releaseId, state: op.nextState, actor }, repoRoot);
+        if (out.error) throw Object.assign(new Error(out.error), { code: out.code });
+        const release = safeReleaseSummary(out.release);
+        execution.results.push({ op: i, type: op.type, ok: true, releaseCandidate: release });
+        appendEvent({ type: 'op-applied', actor, executionId: execution.id, op: i, kind: op.type, releaseId: release.id, releaseHash: release.contentHash, state: release.state });
       } else {
         throw new Error(`unknown op type ${op.type}`);
       }

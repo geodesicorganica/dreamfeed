@@ -16,6 +16,11 @@ const DEFAULTS = Object.freeze({
   'memory-upsert': 'approve',
   'memory-archive': 'approve',
   'memory-delete': 'founder',
+  'verification-record-create': 'approve',
+  'release-candidate-upsert': 'approve',
+  'release-mark-ready': 'approve',
+  'release-abandon': 'approve',
+  'release-mark-shipped': 'founder',
   'promote-topology': 'approve',
   'git-add': 'approve',
   'git-commit': 'approve',
@@ -28,7 +33,14 @@ const DEFAULTS = Object.freeze({
 function classWithFloor(op, cls) {
   const next = CLASSES.has(cls) ? cls : 'denied';
   if (op === 'memory-delete' && next !== 'founder' && next !== 'denied') return DEFAULTS[op];
+  if (op === 'release-mark-shipped' && next !== 'founder' && next !== 'denied') return DEFAULTS[op];
   if ((op === 'memory-upsert' || op === 'memory-archive') && next === 'auto') return DEFAULTS[op];
+  if ([
+    'verification-record-create',
+    'release-candidate-upsert',
+    'release-mark-ready',
+    'release-abandon',
+  ].includes(op) && next === 'auto') return DEFAULTS[op];
   return next;
 }
 

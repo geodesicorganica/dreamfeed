@@ -53,6 +53,10 @@ Before any commit, confirm:
 - [ ] Memory: reads/exports stay guarded GET-only; retrieval metadata is
       read-derived; assistant context remains capped, visible, scoped, and
       non-authoritative; citation/conflict warnings are operator-visible.
+- [ ] Verification/release: reads/exports stay guarded GET-only; records are
+      project-scoped sidecar evidence; shipped marking is founder-class; no
+      test-running, deploy, tag, push, public-release, or terminal route is
+      introduced.
 - [ ] Six-object model: Gate C semantics unchanged.
 - [ ] Three-tier provenance: Canonical / Derived / Candidate labels preserved
       (native schema included).

@@ -15,6 +15,7 @@ OS decision queue (`agents/founder/outputs/decision_queue.md` in
 | D32 | Human-rooted topology, discovery scanner, promotion to `os/topology.md` (adoption bridge) | 2026-07-06 | Resolved — founder-accepted | [d32-human-rooted-topology.md](d32-human-rooted-topology.md) |
 | D33 | Governed Memory Layer: approved sidecar memory, structured retrieval, assistant context visibility | 2026-07-07 | Resolved — founder-requested | [d33-governed-memory-layer.md](d33-governed-memory-layer.md) |
 | D34 | Memory Trust Hardening: retrieval reasons, provenance inspector, export envelope, assistant citations/warnings | 2026-07-07 | Resolved — implemented completion pass | [d34-memory-trust-hardening.md](d34-memory-trust-hardening.md) |
+| D35 | Verification And Release Cockpit: local evidence records and release candidates | 2026-07-07 | Resolved — implemented local evidence slice | [d35-verification-release-cockpit.md](d35-verification-release-cockpit.md) |
 
 ## Adding new decisions
 
