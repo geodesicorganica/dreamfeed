@@ -3,6 +3,7 @@
 // architecture). Every call re-reads the source files — the UI Refresh control
 // maps to one call. Zero bytes are ever written to any source file (NFR1).
 
+const fs = require('fs');
 const path = require('path');
 const {
   REPO_ROOT, parseFile, detectSchemaFamily, discoverGovernanceFiles,
@@ -33,11 +34,19 @@ function buildState(opts = {}) {
   const repoRoot = opts.repoRoot || REPO_ROOT;
   const errors = [];
 
+  // Universal-repo semantics (2026-07-12): the Stakeport family is OPTIONAL.
+  // A repo where NONE of the five source files exist has simply not adopted
+  // this family — that is an onboarding state, not five parse errors. File
+  // errors are reported only when the family is at least partially present
+  // (then a missing/broken file is a genuine authoring problem).
+  const stakeportFamilyPresent = Object.values(SOURCE_FILES)
+    .some((rel) => { try { return fs.existsSync(path.join(repoRoot, rel)); } catch { return false; } });
+
   let thresholds = {};
   try {
     thresholds = loadStalenessThresholds(repoRoot);
   } catch (err) {
-    errors.push({ path: 'shared/cockpit-integration-guide.md', error: `staleness table unavailable: ${err.message}` });
+    if (stakeportFamilyPresent) errors.push({ path: 'shared/cockpit-integration-guide.md', error: `staleness table unavailable: ${err.message}` });
   }
 
   // Load + classify the five sources (schema-family detection runs on every
@@ -47,7 +56,7 @@ function buildState(opts = {}) {
   for (const [key, rel] of Object.entries(SOURCE_FILES)) {
     const f = parseFile(path.join(repoRoot, rel), repoRoot);
     files[key] = f;
-    if (f.error) errors.push({ path: f.path, error: f.error });
+    if (f.error && stakeportFamilyPresent) errors.push({ path: f.path, error: f.error });
     const family = detectSchemaFamily(f.frontmatter);
     sources.push({
       key,
@@ -66,7 +75,8 @@ function buildState(opts = {}) {
   const wi = adaptWeeklyPriorities(files.weekly_priorities, si.objects, thresholds, today);
   const dq = adaptDecisionQueue(files.decision_queue, thresholds, today);
   const ad = adaptAgentDispatch(files.agent_dispatch, thresholds, today);
-  errors.push(...si.errors, ...wi.errors, ...dq.errors, ...ad.errors);
+  // Adapter errors are all file-not-found echoes when the family is absent.
+  if (stakeportFamilyPresent) errors.push(...si.errors, ...wi.errors, ...dq.errors, ...ad.errors);
 
   const approvals = [...dq.objects, ...ad.objects];
 
@@ -102,6 +112,7 @@ function buildState(opts = {}) {
     readOnly: true,
     rootToken: rootToken(repoRoot),
     isDefaultRoot: canonicalKey(repoRoot) === canonicalKey(REPO_ROOT),
+    stakeportFamilyPresent,
     ui: { alias: 'Dreamfeed', canonicalName: 'Dreamfeed Command Center' },
     thresholdsSource: 'shared/cockpit-integration-guide.md §3',
     thresholds,

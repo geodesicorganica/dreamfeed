@@ -61,11 +61,12 @@ test('fixture-root: buildState reads a switched project and resolves evidence un
   } finally { rmrf(root); }
 });
 
-test('switched repo missing the governance layout degrades to parseErrors, never throws', () => {
+test('switched repo missing the governance layout degrades cleanly — absent family is not an error (universal-repo pass)', () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'df-empty-'));
   try {
     const state = buildState({ repoRoot: root });
-    assert.ok(Array.isArray(state.parseErrors) && state.parseErrors.length > 0, 'missing files become parse errors');
+    assert.strictEqual(state.stakeportFamilyPresent, false, 'absent family is flagged, not errored');
+    assert.deepStrictEqual(state.parseErrors, [], 'a repo that never adopted the family reports no parse errors');
     assert.strictEqual(state.strategicInitiatives.length, 0, 'no objects, no crash');
   } finally { rmrf(root); }
 });

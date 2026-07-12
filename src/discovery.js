@@ -9,7 +9,13 @@
 const fs = require('fs');
 const path = require('path');
 
-const IGNORE = new Set(['.git', 'node_modules', 'dist', 'build', '.dreamfeed']);
+// Build/vendor output that must never burn the scan cap or produce candidates.
+// (Universal-repo pass 2026-07-12: a Next.js repo walked 868 `.next` entries.)
+const IGNORE = new Set([
+  '.git', 'node_modules', 'dist', 'build', '.dreamfeed',
+  '.next', '.nuxt', '.svelte-kit', 'out', 'target', 'coverage', 'vendor',
+  '.venv', 'venv', '__pycache__', '.gradle', '.idea', '.cache', 'tmp',
+]);
 const MAX_DEPTH = 6;
 const MAX_ENTRIES = 8000;
 const SNIFF_BYTES = 4096;
@@ -132,8 +138,14 @@ function discover(repoRoot) {
           continue;
         }
         if (SKILL_DIRS.has(lower)) {
+          // Skills are authored artifacts: subdirectories and text files only —
+          // a vendored binary under tools/ is never a skill candidate.
           let kids = [];
-          try { kids = fs.readdirSync(abs, { withFileTypes: true }).map((d) => d.name).sort(); } catch { kids = []; }
+          try {
+            kids = fs.readdirSync(abs, { withFileTypes: true })
+              .filter((d) => d.isDirectory() || /\.(md|txt|ya?ml|json)$/i.test(d.name))
+              .map((d) => d.name).sort();
+          } catch { kids = []; }
           for (const kid of kids) push('skill', kid.replace(/\.[^.]+$/, ''), `${childRel}/${kid}`, 'high', [`path:${lower}`]);
           continue;
         }
@@ -158,10 +170,12 @@ function discover(repoRoot) {
         } catch { /* unparsable package.json is just a file */ }
         continue;
       }
-      if (top === 'docs' && lower.endsWith('.md')) { push('document', childRel.slice(5), childRel, 'high', ['path:docs']); continue; }
+      if (top.toLowerCase() === 'docs' && lower.endsWith('.md')) { push('document', childRel.slice(top.length + 1), childRel, 'high', ['path:docs']); continue; }
       if (childRel.startsWith('.cursor/') || lower === '.cursorrules') { push('document', name, childRel, 'high', ['path:assistant-rules']); continue; }
       if (lower.endsWith('.md')) { sniffMarkdown(abs, childRel); if (seen.has(`agent|${childRel}`) || seen.has(`skill|${childRel}`)) continue; }
-      if (AGENT_NAMES.test(lower.replace(/\.[^.]+$/, ''))) { push('agent', name, childRel, 'medium', ['name:agentic-filename']); continue; }
+      // Name-based agent matching applies to authored text files only — a
+      // binary like management_agent.dll is never an agent candidate.
+      if (/\.(md|txt|ya?ml|json)$/.test(lower) && AGENT_NAMES.test(lower.replace(/\.[^.]+$/, ''))) { push('agent', name, childRel, 'medium', ['name:agentic-filename']); continue; }
       // Unmatched: roll up by top-level directory — never per-file node spam.
       rollupCounts.set(top, (rollupCounts.get(top) || 0) + 1);
     }
