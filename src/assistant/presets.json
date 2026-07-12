@@ -1,0 +1,51 @@
+{
+  "comment": "D37 provider presets. Endpoints live here as DATA, never as source literals; test/constraints.test.js asserts every origin in this file against the enumerated D37 allowlist. The operator's key is stored only in gitignored assistant-config.json.",
+  "presets": [
+    {
+      "id": "anthropic",
+      "label": "Anthropic (Claude)",
+      "provider": "http",
+      "url": "https://api.anthropic.com/v1/messages",
+      "format": "anthropic",
+      "defaultModel": "claude-sonnet-5",
+      "keyHeader": "x-api-key",
+      "extraHeaders": { "anthropic-version": "2023-06-01" },
+      "keyHint": "sk-ant-...",
+      "urlEditable": false
+    },
+    {
+      "id": "openai",
+      "label": "OpenAI",
+      "provider": "http",
+      "url": "https://api.openai.com/v1/chat/completions",
+      "format": "openai",
+      "defaultModel": "gpt-4o-mini",
+      "keyHeader": "Authorization",
+      "keyPrefix": "Bearer ",
+      "keyHint": "sk-...",
+      "urlEditable": false
+    },
+    {
+      "id": "openai-compatible",
+      "label": "OpenAI-compatible endpoint",
+      "provider": "http",
+      "url": "",
+      "format": "openai",
+      "defaultModel": "",
+      "keyHeader": "Authorization",
+      "keyPrefix": "Bearer ",
+      "keyHint": "provider API key (optional)",
+      "urlEditable": true
+    },
+    {
+      "id": "ollama",
+      "label": "Ollama (local)",
+      "provider": "http",
+      "url": "http://localhost:11434/api/chat",
+      "format": "ollama",
+      "defaultModel": "llama3.1",
+      "keyHeader": null,
+      "urlEditable": false
+    }
+  ]
+}

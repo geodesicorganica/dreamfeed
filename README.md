@@ -61,12 +61,26 @@ npm run test:integration
 - Workspace isolation — one active project per server; no cross-project writes.
 - Zero runtime dependencies; free-form terminal and deploy triggers stay gated.
 
+## Project onboarding (D36)
+
+"Set up this project…" (Daily Queue / Overview when a project has no
+governance layer) or "＋ New project here" (Project dialog) opens the guided
+onboarding wizard: discovery findings → a deterministic interview → per-family
+review with per-file diffs and answer provenance → one approval per artifact
+family (os/ layout, agents, harness, docs, memory), each file hash-bound and
+ledgered. Brownfield repos get their existing initiative tables proposed as
+Goal drafts (governed import — nothing renders as truth until approved).
+Existing files are merged or skipped, never overwritten.
+
 ## Assistant (optional)
 
-The right-region Assistant dock (Chief of Staff / Translator / Chat) needs a
-local, gitignored `assistant-config.json` in the app folder. Two provider
-shapes (the only module with outbound egress; keys never enter the repo,
-ledger, or logs):
+The right-region Assistant dock (Chief of Staff / Translator / Chat) is set up
+from the app: the **⚙ Connect** button probes for installed assistant CLIs
+(one-click connect reuses your existing login — no key typed) or takes a
+provider preset + API key, and writes the local, gitignored
+`assistant-config.json` for you (D37). Hand-authoring the file still works.
+Two provider shapes (the adapter is the only module with outbound egress; keys
+never enter the repo, ledger, or logs):
 
 ```json
 { "provider": "cli", "cli": { "command": "claude", "args": ["-p"] } }

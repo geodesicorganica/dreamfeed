@@ -36,7 +36,15 @@ test('project switcher: native Select folder is primary, manual is the labeled f
   assert.match(app, /function selectFolder\(/, 'select-folder flow exists');
   assert.match(app, /'X-Dreamfeed-Token'/, 'guarded calls carry the action token as a custom header');
   assert.doesNotMatch(app, /[?&]token=.*actionToken|actionToken[^)]*query/i, 'action token is not put in query params');
-  assert.doesNotMatch(app, /localStorage|sessionStorage|document\.cookie/, 'action token is never persisted to browser storage');
+  // D36 amendment: localStorage is allowed ONLY for wizard interview drafts
+  // (via the wzSaveDraft/wzClearDraft/openOnboardingWizard helpers). The
+  // action token still never touches any browser storage surface.
+  assert.doesNotMatch(app, /sessionStorage|document\.cookie/, 'no session storage or cookies, ever');
+  for (const [i, line] of app.split('\n').entries()) {
+    if (!line.includes('localStorage')) continue;
+    assert.ok(line.includes('wzDraftKey()'), `app.js:${i + 1} uses localStorage outside the D36 wizard draft helpers: ${line.trim()}`);
+    assert.ok(!/actionToken/.test(line), `app.js:${i + 1} must never put the action token near storage`);
+  }
   assert.match(html, /id="inspectorToggle"/, 'command bar can control inspector visibility');
   assert.match(html, /id="bottomToggle"/, 'command bar can control validation panel visibility');
 });
@@ -133,7 +141,10 @@ test('selection is derived over existing state and routes evidence into the shar
   assert.match(app, /let evidenceRequestId = 0;/, 'evidence fetches carry a request guard');
   assert.match(app, /requestId !== evidenceRequestId \|\| view\.evidence\?\.path !== path/, 'stale evidence responses cannot overwrite current inspector state');
   assert.doesNotMatch(html, /id="sidepanel"/, 'legacy overlay source viewer is removed');
-  assert.doesNotMatch(app, /localStorage|sessionStorage|indexedDB|document\.cookie|history\.(pushState|replaceState)|location\.(hash|search)/, 'V1 cockpit state is not persisted across reload surfaces');
+  // D36 amendment: cockpit VIEW state stays unpersisted; the single exception
+  // is wizard interview drafts (operator-authored content, resumable by
+  // design), pinned to the wzDraftKey helpers by the switcher test above.
+  assert.doesNotMatch(app, /sessionStorage|indexedDB|document\.cookie|history\.(pushState|replaceState)|location\.(hash|search)/, 'V1 cockpit state is not persisted across reload surfaces');
   assert.match(app, /const view = \{\s*tab: 'daily'/, 'reload starts from the daily queue landing state');
 });
 
@@ -198,4 +209,32 @@ test('Dreamfeed tokens, Verified Node, and self-hosted IBM Plex routes are local
   assert.ok(fontUrls.some((url) => url.includes('IBMPlexSans-')), 'IBM Plex Sans file URLs are explicit');
   assert.ok(fontUrls.some((url) => url.includes('IBMPlexMono-')), 'IBM Plex Mono file URLs are explicit');
   assert.doesNotMatch(fonts, /https?:\/\//, 'font CSS has no external runtime dependency');
+});
+
+test('D37: assistant connect surface exists and never renders secrets', () => {
+  const app = read('public', 'app.js');
+  const html = read('public', 'index.html');
+  assert.match(html, /id="assistantDialog"/, 'connect dialog markup exists');
+  assert.match(html, /id="asstKey" type="password"/, 'key input is a password field');
+  assert.match(app, /data-assistant-connect/, 'dock exposes the connect entry point');
+  assert.match(app, /openAssistantConnect/, 'connect dialog opener exists');
+  assert.match(app, /\/api\/assistant\/probe/, 'probe results feed tier-1 one-click connect');
+  assert.match(app, /key\.value = ''/, 'key field is wiped when the dialog closes');
+  assert.doesNotMatch(app, /assistant\.apiKey|asstKey.*innerHTML/, 'the key is never rendered back into markup');
+});
+
+test('D36: onboarding wizard surface — entry points, walker module, approval reuse', () => {
+  const app = read('public', 'app.js');
+  const html = read('public', 'index.html');
+  assert.match(html, /id="wizardDialog"/, 'wizard dialog markup exists');
+  assert.match(html, /src="\/wizard\.js"/, 'walker ships as its own node-testable module');
+  assert.match(html, /id="npCreate"/, 'project picker offers New project here');
+  assert.match(app, /data-wizard-open/, 'null states route into the wizard');
+  assert.match(app, /DreamfeedWizard\.nextQuestion/, 'the dialog walks the deterministic tree');
+  assert.match(app, /openApprovalDialog\(out\.plan\)/, 'scaffold plans ride the SAME approval dialog as every write');
+  assert.match(app, /wizardPlanExecuted/, 'approval completion advances the wizard');
+  assert.match(app, /localStorage\.setItem\(wzDraftKey\(\)/, 'drafts persist per rootToken');
+  assert.match(app, /the deterministic question stands/, 'assistant enrichment is additive, never load-bearing');
+  const missingFamilyCollapse = app.includes('ENOENT|no such file');
+  assert.ok(missingFamilyCollapse, 'missing-family parse errors collapse into one adoption prompt');
 });

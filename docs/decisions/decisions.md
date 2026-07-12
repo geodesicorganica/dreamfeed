@@ -16,6 +16,8 @@ OS decision queue (`agents/founder/outputs/decision_queue.md` in
 | D33 | Governed Memory Layer: approved sidecar memory, structured retrieval, assistant context visibility | 2026-07-07 | Resolved — founder-requested | [d33-governed-memory-layer.md](d33-governed-memory-layer.md) |
 | D34 | Memory Trust Hardening: retrieval reasons, provenance inspector, export envelope, assistant citations/warnings | 2026-07-07 | Resolved — implemented completion pass | [d34-memory-trust-hardening.md](d34-memory-trust-hardening.md) |
 | D35 | Verification And Release Cockpit: local evidence records and release candidates | 2026-07-07 | Resolved — implemented local evidence slice | [d35-verification-release-cockpit.md](d35-verification-release-cockpit.md) |
+| D36 | Unified Onboarding: grill-me interview wizard, governed scaffold (`scaffold-project`, `git-init`), governed brownfield import | 2026-07-07 | Resolved — founder-accepted | [d36-unified-onboarding.md](d36-unified-onboarding.md) |
+| D37 | Assistant Connect: first-run setup, CLI auto-detect, managed `assistant-config.json`, preset exemption | 2026-07-07 | Resolved — founder-accepted | [d37-assistant-connect.md](d37-assistant-connect.md) |
 
 ## Adding new decisions
 

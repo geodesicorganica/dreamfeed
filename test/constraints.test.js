@@ -81,7 +81,9 @@ test('read-only outside the write engine: fs writes in src/ are allowlisted', ()
   // containment-checked source-repo write path; the commands/ store+ledger
   // write only inside the .dreamfeed/ sidecar; server.js only the project
   // sidecar line. Everything else in src/ stays read-only.
-  const ALLOWED_FILES = new Set(['write.js', path.join('commands', 'ledger.js'), path.join('commands', 'store.js')]);
+  // D36 adds onboarding/folders.js: the ONLY module allowed to mkdir, and only
+  // to create one new project directory under an existing user-chosen parent.
+  const ALLOWED_FILES = new Set(['write.js', path.join('commands', 'ledger.js'), path.join('commands', 'store.js'), path.join('onboarding', 'folders.js')]);
   const files = [];
   (function walk(dir) {
     for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
@@ -96,7 +98,11 @@ test('read-only outside the write engine: fs writes in src/ are allowlisted', ()
     const lines = fs.readFileSync(file, 'utf8').split('\n');
     lines.forEach((line, i) => {
       if (!WRITE_CALL.test(line)) return;
-      const ok = rel === 'server.js' && line.includes('PROJECT_CONFIG_FILE');
+      // Line-scoped sidecar-config exemptions: server.js writes the project
+      // sidecar; adapter.js writes assistant-config.json (D37) — both cockpit-
+      // local gitignored files, never governance/source writes.
+      const ok = (rel === 'server.js' && line.includes('PROJECT_CONFIG_FILE'))
+        || (rel === path.join('assistant', 'adapter.js') && line.includes('CONFIG_FILE'));
       assert.ok(ok, `src/${rel}:${i + 1} contains an fs write outside the governed write engine: ${line.trim()}`);
     });
   }
@@ -155,7 +161,7 @@ test('zero-dep: package.json declares no runtime dependencies', () => {
 
 // --- D32: adoption bridge stays inside the Gate G envelope -----------------------
 
-test('D32: the mutating-route set is exactly the D31 seven — promotion adds an intent kind, not a route', () => {
+test('D36+D37: the mutating-route set is exactly the D31 seven plus assistant-config and project-create', () => {
   assert.deepStrictEqual(
     Object.fromEntries(Object.entries(MUTATING).map(([r, m]) => [r, [...m]])),
     {
@@ -166,14 +172,27 @@ test('D32: the mutating-route set is exactly the D31 seven — promotion adds an
       '/api/executions/:id/rollback': ['POST'],
       '/api/work/tasks/transition': ['POST'],
       '/api/assistant/:mode/messages': ['POST'],
+      // D37: managed assistant config (create/update/clear); key never ledgered.
+      '/api/assistant/config': ['POST'],
+      // D36: greenfield folder creation + switch; scaffolding itself rides the
+      // existing lifecycle routes as the scaffold-project intent kind.
+      '/api/project/create': ['POST'],
     },
-    'D32 must not expand the mutating surface; promote-topology rides the existing lifecycle routes');
+    'the mutating surface is fixed by decision record; scaffold-project and promote-topology ride the existing lifecycle routes');
 });
 
 test('D32: promote-topology is explicitly policy-classed approve in the defaults', () => {
   const { DEFAULTS } = require('../src/commands/policy');
   assert.strictEqual(DEFAULTS['promote-topology'], 'approve',
     'promote-topology must be declared in policy defaults (unknown operations are denied)');
+});
+
+test('D36: scaffold-project and git-init are explicitly policy-classed approve in the defaults', () => {
+  const { DEFAULTS } = require('../src/commands/policy');
+  assert.strictEqual(DEFAULTS['scaffold-project'], 'approve',
+    'scaffold-project must be declared in policy defaults (unknown operations are denied)');
+  assert.strictEqual(DEFAULTS['git-init'], 'approve',
+    'git-init must be declared in policy defaults (unknown operations are denied)');
 });
 
 test('D32: /api/discovery exists and is GET-only', async () => {
@@ -184,6 +203,35 @@ test('D32: /api/discovery exists and is GET-only', async () => {
   const res = await fetch(base + '/api/discovery');
   assert.notStrictEqual(res.status, 404, 'GET /api/discovery must be a real route');
   assert.notStrictEqual(res.status, 405, 'GET /api/discovery must accept GET');
+});
+
+test('D36+D37: onboarding and probe routes exist and are GET-only', async () => {
+  for (const route of ['/api/onboarding', '/api/assistant/probe']) {
+    for (const method of ['POST', 'PUT', 'PATCH', 'DELETE']) {
+      const res = await fetch(base + route, { method });
+      assert.strictEqual(res.status, 405, `${method} ${route} must be 405`);
+    }
+    const res = await fetch(base + route);
+    assert.notStrictEqual(res.status, 404, `GET ${route} must be a real route`);
+    assert.notStrictEqual(res.status, 405, `GET ${route} must accept GET`);
+  }
+});
+
+test('D37: assistant preset endpoints are enumerated data, never unvetted origins', () => {
+  // The origin scan above covers .js/.html/.css/.svg — presets.json is data by
+  // design (endpoints must not be source literals), so its hosts are asserted
+  // here explicitly. The exemption is enumerated, never a scan gap.
+  const PRESET_HOSTS = new Set(['api.anthropic.com', 'api.openai.com', 'localhost', '127.0.0.1']);
+  const presetsPath = path.join(ROOT, 'src', 'assistant', 'presets.json');
+  if (!fs.existsSync(presetsPath)) return; // lands with the D37 build slice
+  const text = fs.readFileSync(presetsPath, 'utf8');
+  const presets = JSON.parse(text); // must be valid JSON
+  assert.ok(Array.isArray(presets.presets) && presets.presets.length > 0, 'presets.json must enumerate presets');
+  for (const m of text.matchAll(/https?:\/\/([^\s/"'`)>;,]+)/g)) {
+    const host = m[1].split(':')[0];
+    assert.ok(PRESET_HOSTS.has(host),
+      `presets.json references origin "${m[0]}" outside the D37 enumerated allowlist`);
+  }
 });
 
 test('denied class: git force-push and history rewrites never appear in the executor allowlist', () => {

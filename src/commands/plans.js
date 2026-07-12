@@ -30,6 +30,8 @@ const GIT_OPS = Object.freeze({
   'git-branch': { build: (p) => ['switch', '-c', String(p.name || '').trim()] },
   'git-switch': { build: (p) => ['switch', String(p.name || '').trim()] },
   'git-push': { build: () => ['push'] },
+  // D36: the op that makes a folder a repo (greenfield onboarding). Fixed args.
+  'git-init': { build: () => ['init', '-b', 'main'] },
 });
 const SAFE_REF = /^[A-Za-z0-9][A-Za-z0-9._/-]*$/;
 const SAFE_PATHSPEC = /^[^-][^\0]*$/;
@@ -189,6 +191,55 @@ function planPromoteTopology(intent, repoRoot) {
   };
 }
 
+// D36: one scaffold-project intent per artifact family. The generator resolves
+// answers + imports against the current repo into an exact multi-file set;
+// every file rides as its own hash-bound write-file op (baseHash null =
+// create), so one approval covers one reviewable family batch and drift on any
+// file refuses the whole plan.
+const SCAFFOLD_PATH_RULES = Object.freeze({
+  'os-core': /^os\/(goals|operations)\/[a-z0-9][a-z0-9-]*\.md$|^os\/(policy|blockers|topology)\.md$/,
+  'agents': /^agents\/[a-z0-9][a-z0-9-]*\/AGENT\.md$/,
+  'harness': /^(CLAUDE|AGENTS)\.md$/,
+  'docs': /^docs\/[a-z0-9][a-z0-9-]*\.md$/,
+  'memory': /^memory\/(README|[a-z0-9][a-z0-9-]*)\.md$/,
+});
+function planScaffoldProject(intent, repoRoot) {
+  const { generateFamily } = require('../onboarding/generate');
+  const p = intent.payload || {};
+  const family = String(p.family || '');
+  const rule = SCAFFOLD_PATH_RULES[family];
+  if (!rule) return { error: `unknown scaffold family "${family}"`, code: 'validation' };
+  const out = generateFamily(family, {
+    repoRoot,
+    answers: p.answers || {},
+    imports: p.imports || {},
+    families: Array.isArray(p.families) && p.families.length ? p.families : undefined,
+    asOfDate: p.asOfDate,
+  });
+  if (out.error) return out;
+  if (!out.files.length) {
+    return { error: `nothing to scaffold for family "${family}"${out.warnings.length ? `: ${out.warnings.join('; ')}` : ''}`, code: 'validation' };
+  }
+  for (const f of out.files) {
+    if (!rule.test(f.path)) return { error: `generated path escapes the ${family} allowlist: ${f.path}`, code: 'validation' };
+  }
+  const creates = out.files.filter((f) => f.create).length;
+  return {
+    opName: 'scaffold-project',
+    summary: `scaffold ${family}: ${out.files.length} file(s) (${creates} new)${out.warnings.length ? ` · ${out.warnings.length} skipped` : ''}`,
+    ops: out.files.map((f) => ({ type: 'write-file', path: f.path, baseHash: f.baseHash, content: f.content })),
+    preview: {
+      family,
+      files: out.files.map((f) => {
+        const abs = path.join(repoRoot, f.path);
+        const before = f.baseHash === null ? '' : (fs.existsSync(abs) ? fs.readFileSync(abs, 'utf8') : '');
+        return { path: f.path, create: f.create, diff: lineDiff(before, f.content), provenance: f.provenance };
+      }),
+      warnings: out.warnings,
+    },
+  };
+}
+
 function planGit(intent) {
   const opName = intent.kind;
   const spec = GIT_OPS[opName];
@@ -301,6 +352,7 @@ function computePlan(intent, { repoRoot, policy }) {
   let core;
   if (intent.kind === 'task-transition') core = planTaskTransition(intent, repoRoot);
   else if (intent.kind === 'promote-topology') core = planPromoteTopology(intent, repoRoot);
+  else if (intent.kind === 'scaffold-project') core = planScaffoldProject(intent, repoRoot);
   else if (intent.kind === 'memory-upsert') core = planMemoryUpsert(intent, repoRoot);
   else if (intent.kind === 'memory-archive') core = planMemoryStateChange(intent, repoRoot, 'memory-archive', 'archived');
   else if (intent.kind === 'memory-delete') core = planMemoryStateChange(intent, repoRoot, 'memory-delete', 'deleted-tombstone');

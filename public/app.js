@@ -552,12 +552,22 @@ function renderOverview() {
   const staleList = stale.length ? `<ul class="olist">${stale.map((s) => `<li data-object-id="source:${esc(s.path)}">${pill('stale', 'red')} ${esc(s.path)}</li>`).join('')}</ul>` : '<p class="odim">No stale source files.</p>';
   const next = [...approvals.map((o) => `Review ${fieldValue(o.id, fieldValue(o.title, 'approval'))}`), ...blockers.map((o) => `Unblock ${fieldValue(o.rank)}: ${fieldValue(o.action).slice(0, 70)}`)];
   const noObjects = !state.strategicInitiatives.length && !state.workItems.length && !state.approvals.length;
-  const projBanner = noObjects && project && project.configured ? `<div class="banner banner-warn">No governance objects resolved here — this folder may not follow the Dreamfeed governance layout. Use the Sources lens or the read-only file viewer to inspect it.</div>` : '';
+  const projBanner = noObjects && project && project.configured ? `<div class="banner banner-warn">No governance objects resolved here — this folder has no governance layer yet. <button type="button" class="command-button primary" data-wizard-open>Set up this project…</button></div>` : '';
   return `${projBanner}<div class="banner">Dashboard lens — decisions and blockers first. Source state read ${esc(state.generatedAt)}. Controls are non-persistent; no cockpit configuration is written.</div>${strip}<div class="owidgets">${owidget(`Approvals — founder action (${approvals.length})`, 'queue', approvalsList)}${owidget(`Blockers (${blockers.length})`, 'board', blockersList)}</div><div class="owidgets">${owidget('Active goals', 'board', `<ul class="olist">${active.map((o) => `<li data-object-id="${esc(initiativeId(o))}">${pill('active', 'blue')} ${esc(fieldValue(o.name))} ${freshChip(o.freshness)}</li>`).join('') || '<li class="odim">No active initiatives.</li>'}</ul>`)}${owidget('Repo health', 'health', healthList, health.inspectedAt || '')}${owidget('Validation / audit', 'health', auditList, audit.lastRun || 'never run')}${owidget(`Stale surfaces (${stale.length})`, 'sources', staleList)}</div>${owidget('Next actions', 'queue', next.length ? `<ol class="olist onum">${next.slice(0, 8).map((n) => `<li>${esc(n)}</li>`).join('')}</ol>` : '<p class="odim">Nothing requires founder action right now.</p>')}`;
 }
 function renderBoard() {
-  const errors = state.parseErrors.length ? `<div class="cards">${state.parseErrors.map((e) => `<article class="card error-card"><div class="card-title">Parse error</div><div class="src">${esc(e.path)} · ${esc(e.error)}</div></article>`).join('')}</div>` : '<p class="odim">No parse errors.</p>';
-  return renderApprovalsBoard() + renderInitiatives() + renderWorkItems() + group('errors', 'Parse errors', errors, state.counts.parseErrors);
+  // D36: a repo that simply lacks the governance family is an onboarding case,
+  // not a wall of error cards. Fully-absent families report no errors at all
+  // (state.stakeportFamilyPresent === false → one adoption prompt); a PARTIAL
+  // family still reports its missing/broken files loudly, alongside genuine
+  // parse errors (malformed content).
+  const missing = state.parseErrors.filter((e) => /ENOENT|no such file/i.test(e.error));
+  const real = state.parseErrors.filter((e) => !/ENOENT|no such file/i.test(e.error));
+  const familyAbsent = state.stakeportFamilyPresent === false && project && project.configured;
+  const adoptCard = familyAbsent ? `<article class="card"><div class="card-title">No governance layer found</div><p class="odim">This folder does not carry the governance files this board reads. Set the project up through the guided flow instead of creating them by hand.</p><button type="button" class="command-button primary" data-wizard-open>Set up this project…</button></article>`
+    : missing.length ? `<article class="card"><div class="card-title">Governance layer is partially present (${missing.length} expected file(s) absent)</div><p class="odim">Some governance files exist but these are missing — the guided flow can regenerate the gaps.</p><button type="button" class="command-button" data-wizard-open>Set up this project…</button></article>` : '';
+  const errors = (adoptCard || real.length || missing.length) ? `<div class="cards">${adoptCard}${[...missing, ...real].map((e) => `<article class="card error-card"><div class="card-title">Parse error</div><div class="src">${esc(e.path)} · ${esc(e.error)}</div></article>`).join('')}</div>` : '<p class="odim">No parse errors.</p>';
+  return renderApprovalsBoard() + renderInitiatives() + renderWorkItems() + group('errors', 'Parse errors', errors, real.length + missing.length + (adoptCard ? 1 : 0));
 }
 
 // ---------------------------------------------------------------------------
@@ -998,8 +1008,13 @@ function queueRow(entry) {
 
 function renderDaily() {
   if (!queueData || queueData.hasNative === false) {
-    return `<article class="card"><div class="card-title">Daily execution queue</div>
-      <p class="odim">The active project has no Dreamfeed-native <code>os/</code> layout (goals, operations). See <code>docs/product/native-schema.md</code> to adopt it, or use the classic lenses from the sidebar.</p>
+    if (!project || !project.configured) {
+      return `<article class="card"><div class="card-title">Daily execution queue</div>
+        <p class="odim">No project selected. Use the Project button to open a folder — or create a new one and get guided setup.</p></article>`;
+    }
+    return `<article class="card"><div class="card-title">This project has no operating layout yet</div>
+      <p class="odim">The Daily Queue reads a Dreamfeed-native <code>os/</code> layout (goals, operations). A short guided interview generates it from what already exists in this repo — every file goes through your approval.</p>
+      <button type="button" class="command-button primary" data-wizard-open>Set up this project…</button>
       <button type="button" class="command-button" data-gotab="overview">Open classic Overview</button></article>`;
   }
   const s = queueData.sections;
@@ -1355,8 +1370,11 @@ async function approveAndExecute() {
       return;
     }
     feedback(`Executed ${pendingPlan.opName}: ${xData.execution.status} · ledgered`);
+    const executedPlan = pendingPlan;
     closeApprovalDialog();
     await load();
+    // D36: a wizard-raised plan advances the wizard to its next family/step.
+    if (typeof wizardPlanExecuted === 'function') wizardPlanExecuted(executedPlan);
   } catch (err) { errEl.textContent = String(err); errEl.hidden = false; }
 }
 
@@ -1399,14 +1417,14 @@ function renderAssistant(inspector) {
     `<button type="button" class="assistant-mode${assistant.mode === id ? ' active' : ''}" data-assistant-mode="${id}">${label}</button>`).join('');
   const ctx = assistantContext();
   const body = !configured
-    ? `<div class="assistant-empty"><p><b>Assistant not configured.</b></p><p class="odim">Create <code>assistant-config.json</code> in the app folder (gitignored) with a <code>cli</code> or <code>http</code> provider. See README §Assistant. Keys never enter this repo or the ledger.</p></div>`
+    ? `<div class="assistant-empty"><p><b>No assistant connected.</b></p><p class="odim">Connect a local assistant CLI you already use (zero keys typed) or a model provider with an API key. Keys never enter this repo or the ledger.</p><button type="button" class="command-button primary" data-assistant-connect>Connect your assistant…</button></div>`
     : (transcript.length
       ? transcript.map((m, i) => `<div class="assistant-msg assistant-${m.role}"><span class="assistant-role">${m.role === 'user' ? 'YOU' : 'ASSISTANT'}</span><div>${renderMarkdown(m.text)}</div><button type="button" class="command-button task-action" data-memory-from-assistant="${i}">Remember…</button></div>`).join('')
       : `<div class="assistant-empty odim">${assistant.mode === 'chief-of-staff' ? 'Ask for a read on today\'s queue, or what to delegate. Proposals come back as suggestions — every action still needs your approval.' : assistant.mode === 'translator' ? 'Paste rough notes; get back a structured task spec or prompt.' : 'Ask anything about the current work state.'}</div>`);
   inspector.innerHTML = `
     <div class="right-mode-tabs"><button type="button" class="right-mode" data-right-mode="inspector">Inspector</button><button type="button" class="right-mode active" data-right-mode="assistant">Assistant</button></div>
     <div class="assistant-dock">
-      <div class="assistant-modes">${modeTabs}</div>
+      <div class="assistant-modes">${modeTabs}<span class="command-spacer"></span><button type="button" class="assistant-mode" data-assistant-connect title="${configured ? `Connected: ${esc(project.assistant.preset || project.assistant.provider || '')} — change or disconnect` : 'Connect your assistant'}">${configured ? '⚙' : '⚙ Connect'}</button></div>
       <div class="assistant-transcript" id="assistantTranscript">${body}${assistant.busy ? '<div class="assistant-msg odim">thinking…</div>' : ''}</div>
       ${ctx ? `<details class="assistant-ctx"><summary>Context sent with each message</summary><pre>${esc(ctx)}</pre></details>` : ''}
       ${assistantMemorySummary()}
@@ -1443,11 +1461,428 @@ function renderAssistant(inspector) {
   };
   if (sendBtn) sendBtn.addEventListener('click', send);
   if (text) text.addEventListener('keydown', (e) => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); send(); } });
+  inspector.querySelectorAll('[data-assistant-connect]').forEach((el) => el.addEventListener('click', openAssistantConnect));
   inspector.querySelectorAll('[data-memory-from-assistant]').forEach((el) => el.addEventListener('click', () => {
     const msg = assistant.transcripts[assistant.mode][Number(el.dataset.memoryFromAssistant)];
     if (!msg) return;
     setMemoryDraft({ kind: msg.role === 'assistant' ? 'semantic' : 'episodic', title: `Assistant ${msg.role} note`, body: msg.text, tags: ['assistant'], sourceType: 'assistant' });
   }));
+}
+
+// --- onboarding wizard (D36) -------------------------------------------------
+// One unified flow for greenfield and brownfield: discovery findings →
+// deterministic interview (walker in /wizard.js) → per-family review with
+// diffs + provenance → sequential approvals through the SAME approval dialog
+// as every other write. Draft answers persist locally keyed by rootToken
+// (wzDraftKey below); the durable record is the intent payloads and the ledger.
+
+let wizard = null; // { data, answers, seen, history, step, families, results, awaitingFamily, awaitingGit, gitDone }
+
+const WZ_FAMILY_LABELS = {
+  'os-core': 'Operating layout (os/) — goals, operations, policy, blockers, topology',
+  'agents': 'Agent definitions — founder, chief of staff, domain agents',
+  'harness': 'Harness files — CLAUDE.md / AGENTS.md for coding agents',
+  'docs': 'Business documents — strategy, roadmap, brand brief',
+  'memory': 'Memory scaffolding — durable operating knowledge',
+};
+
+function wzDraftKey() { return `df-wizard-${wizard?.data?.rootToken || project?.rootToken || 'none'}`; }
+function wzSaveDraft() {
+  if (!wizard) return;
+  try { localStorage.setItem(wzDraftKey(), JSON.stringify({ answers: wizard.answers, seen: wizard.seen, families: wizard.families, results: wizard.results, gitDone: wizard.gitDone })); } catch { /* draft only */ }
+}
+function wzClearDraft() { try { localStorage.removeItem(wzDraftKey()); } catch { /* draft only */ } }
+
+async function openOnboardingWizard() {
+  const dlg = $('#wizardDialog'); if (!dlg) return;
+  if (typeof dlg.showModal === 'function') { if (!dlg.open) dlg.showModal(); } else dlg.setAttribute('open', '');
+  $('#wzBody').innerHTML = '<p class="odim">Reading the project: discovery, existing governance, prefills…</p>';
+  let data;
+  try {
+    const res = await guardedFetch('/api/onboarding');
+    data = await res.json();
+    if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+  } catch (err) {
+    $('#wzBody').innerHTML = `<p class="project-error">Onboarding unavailable: ${esc(String(err.message || err))}</p>`;
+    return;
+  }
+  if (!data.configured) {
+    $('#wzBody').innerHTML = '<p>No project selected. Pick a folder (or create one with “New project here” in the Project dialog) first.</p>';
+    $('#wzNext').hidden = true;
+    return;
+  }
+  wizard = {
+    data,
+    answers: { ...(data.prefills?.answers || {}) },
+    seen: {},
+    history: [],
+    step: 'findings',
+    families: Object.fromEntries(data.families.map((f) => [f, true])),
+    results: {},
+    gitDone: data.isRepo === true,
+  };
+  try {
+    const saved = JSON.parse(localStorage.getItem(wzDraftKey()) || 'null');
+    if (saved) {
+      wizard.answers = { ...wizard.answers, ...(saved.answers || {}) };
+      wizard.seen = saved.seen || {};
+      wizard.families = { ...wizard.families, ...(saved.families || {}) };
+      wizard.results = saved.results || {};
+      wizard.gitDone = wizard.gitDone || !!saved.gitDone;
+    }
+  } catch { /* fresh start */ }
+  renderWizard();
+}
+
+function closeWizard() {
+  wzSaveDraft();
+  const dlg = $('#wizardDialog'); if (!dlg) return;
+  if (typeof dlg.close === 'function' && dlg.open) dlg.close(); else dlg.removeAttribute('open');
+}
+
+function wzSetError(msg) {
+  const el = $('#wzError');
+  el.hidden = !msg;
+  el.textContent = msg || '';
+}
+
+function wzCurrentQuestion() {
+  return DreamfeedWizard.nextQuestion(wizard.data.questions, wizard.answers, wizard.seen);
+}
+
+function renderWizard() {
+  if (!wizard) return;
+  wzSetError('');
+  const body = $('#wzBody');
+  const next = $('#wzNext'), back = $('#wzBack'), skip = $('#wzSkip');
+  next.hidden = false; back.hidden = true; skip.hidden = true;
+  const prog = DreamfeedWizard.progress(wizard.data.questions, wizard.answers);
+  $('#wzProgress').textContent = wizard.step === 'interview' ? `Interview · ${prog.answered}/${prog.total} answered` : '';
+
+  if (wizard.step === 'findings') {
+    $('#wzTitle').textContent = 'Set up this project';
+    const d = wizard.data;
+    const kinds = Object.entries(d.discoverySummary?.byKind || {}).map(([k, n]) => `${n} ${k}`).join(' · ') || 'nothing yet';
+    const importLines = [
+      d.imports.goals.length ? `<li><b>${d.imports.goals.length} goal draft(s)</b> from existing initiative tables — you will confirm or edit them, nothing imports silently.</li>` : '',
+      d.imports.operations.length ? `<li><b>${d.imports.operations.length} operation draft(s)</b> from workflow docs.</li>` : '',
+      d.imports.roadmapPhases.length ? `<li><b>${d.imports.roadmapPhases.length} roadmap phase(s)</b> found in existing docs.</li>` : '',
+    ].filter(Boolean).join('');
+    body.innerHTML = `
+      <p>${d.hasNativeSchema ? 'This project already has an <code>os/</code> layout — the wizard will only add what is missing (it never overwrites).' : 'This project has no <code>os/</code> operating layout yet. A short interview generates it — every file goes through your explicit approval.'}</p>
+      <div class="detail-sec">What discovery found</div>
+      <p class="odim">${esc(kinds)}${d.isRepo === false ? ' · <b>not a git repository yet</b> (you can initialize one at the end)' : ''}</p>
+      ${importLines ? `<ul class="detail-list">${importLines}</ul>` : '<p class="odim">No importable work structures found — the interview starts from scratch.</p>'}
+      ${wizard.data.assistant?.configured ? '<p class="odim">Assistant connected: it can rephrase questions and draft prose — always editable, never required.</p>' : '<p class="odim">No assistant connected — the deterministic interview works fully without one. Connect later via the Assistant dock.</p>'}`;
+    next.textContent = 'Start the interview';
+    return;
+  }
+
+  if (wizard.step === 'interview') {
+    const q = wzCurrentQuestion();
+    if (!q) { wizard.step = 'review'; renderWizard(); return; }
+    wizard.currentQ = q;
+    $('#wzTitle').textContent = 'Interview';
+    back.hidden = wizard.history.length === 0;
+    skip.hidden = !!q.required;
+    const v = wizard.answers[q.id];
+    const evidence = wizard.data.prefills?.evidence?.[q.id];
+    let input = '';
+    if (q.kind === 'choice') {
+      input = q.options.map((o) => `<label class="wz-opt"><input type="radio" name="wzq" value="${esc(o.value)}" ${v === o.value ? 'checked' : ''}/> ${esc(o.label)}</label>`).join('');
+    } else if (q.kind === 'multi') {
+      input = q.options.map((o) => `<label class="wz-opt"><input type="checkbox" name="wzq" value="${esc(o.value)}" ${Array.isArray(v) && v.includes(o.value) ? 'checked' : ''}/> ${esc(o.label)}</label>`).join('');
+    } else if (q.kind === 'textarea') {
+      input = `<textarea id="wzAnswer" rows="4">${esc(v || '')}</textarea>`;
+    } else {
+      input = `<input id="wzAnswer" type="text" value="${esc(v || '')}" autocomplete="off" spellcheck="false" ${q.kind === 'date' ? 'placeholder="YYYY-MM-DD"' : ''}/>`;
+    }
+    body.innerHTML = `
+      <p class="wz-q">${esc(q.prompt)}</p>
+      ${q.help ? `<p class="odim">${esc(q.help)}</p>` : ''}
+      ${evidence && v ? `<p class="odim wz-evidence">Pre-filled from: ${esc(evidence)} — edit freely.</p>` : ''}
+      <div class="wz-input">${input}</div>
+      ${wizard.data.assistant?.configured && (q.kind === 'text' || q.kind === 'textarea') ? '<button type="button" class="command-button task-action" id="wzEnrich">Assistant: probe / draft this…</button><div id="wzEnrichOut"></div>' : ''}`;
+    next.textContent = 'Continue';
+    const enrich = $('#wzEnrich');
+    if (enrich) enrich.addEventListener('click', () => wzEnrich(q));
+    const answerEl = $('#wzAnswer');
+    if (answerEl) answerEl.focus();
+    return;
+  }
+
+  if (wizard.step === 'review') {
+    $('#wzTitle').textContent = 'Review & approve';
+    back.hidden = false;
+    const rows = wizard.data.families.map((f) => {
+      const r = wizard.results[f];
+      const forced = f === 'os-core';
+      const status = r === 'done' ? '<b class="wz-done">approved & written</b>' : r === 'skipped-empty' ? '<span class="odim">nothing to generate</span>' : wizard.families[f] ? '<span class="odim">pending</span>' : '<span class="odim">opted out</span>';
+      return `<label class="wz-opt"><input type="checkbox" data-wz-family="${esc(f)}" ${wizard.families[f] ? 'checked' : ''} ${forced || r === 'done' ? 'disabled' : ''}/> ${esc(WZ_FAMILY_LABELS[f] || f)} — ${status}</label>`;
+    }).join('');
+    const pendingFamilies = wizard.data.families.filter((f) => wizard.families[f] && !wizard.results[f]);
+    const gitRow = wizard.data.isRepo === false
+      ? `<label class="wz-opt"><input type="checkbox" id="wzGit" ${wizard.gitDone ? 'checked disabled' : 'checked'}/> Initialize a git repository (git init) ${wizard.gitDone ? '— <b class="wz-done">done</b>' : ''}</label>`
+      : '';
+    body.innerHTML = `
+      <p>Each family is one reviewable approval: you will see every file and its diff before anything is written. Files that already exist are merged or skipped — never overwritten.</p>
+      <div class="wz-families">${rows}${gitRow}</div>
+      ${pendingFamilies.length ? `<p class="odim">Next approval: <b>${esc(pendingFamilies[0])}</b> (${pendingFamilies.length} remaining)</p>` : '<p><b>All selected families are written.</b></p>'}`;
+    next.textContent = pendingFamilies.length ? `Propose ${pendingFamilies[0]}…` : (wizard.data.isRepo === false && !wizard.gitDone ? 'Initialize git…' : 'Finish');
+    body.querySelectorAll('[data-wz-family]').forEach((el) => el.addEventListener('change', () => {
+      wizard.families[el.dataset.wzFamily] = el.checked; wzSaveDraft(); renderWizard();
+    }));
+    return;
+  }
+
+  if (wizard.step === 'done') {
+    $('#wzTitle').textContent = 'Project is set up';
+    $('#wzProgress').textContent = '';
+    const written = Object.entries(wizard.results).filter(([, r]) => r === 'done').map(([f]) => f);
+    body.innerHTML = `
+      <p><b>${esc(written.join(', ') || 'nothing')}</b> written through the governed lifecycle — every file is in the ledger.</p>
+      <ul class="detail-list">
+        <li>The Daily Queue now reads <code>os/goals</code> and <code>os/operations</code>.</li>
+        <li>Agents parse into the Topology lens; docs and memory are seeded.</li>
+        <li>Everything is plain markdown in your repo — edit any of it later through the same approval flow.</li>
+      </ul>`;
+    next.textContent = 'Open the Daily Queue';
+    return;
+  }
+}
+
+async function wzEnrich(q) {
+  const out = $('#wzEnrichOut'); if (!out) return;
+  out.innerHTML = '<p class="odim">Asking the assistant…</p>';
+  const draft = $('#wzAnswer')?.value.trim() || String(wizard.answers[q.id] || '');
+  try {
+    const res = await postMutation('/api/assistant/onboarding/messages', {
+      message: `Question: ${q.prompt}\n\nOperator draft answer: ${draft || '(none yet)'}\n\n${draft ? 'Improve this into crisp document-ready prose, preserving every fact.' : 'Rephrase the question conversationally and add ONE concrete probing follow-up.'}`,
+      context: `Business: ${wizard.answers['q-business-name'] || 'unknown'} — ${wizard.answers['q-one-liner'] || ''}`,
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) { out.innerHTML = `<p class="odim">Assistant unavailable (${esc(data.error || res.status)}) — the deterministic question stands.</p>`; return; }
+    out.innerHTML = `<div class="wz-enriched"><div class="markdown-body">${renderMarkdown(data.reply)}</div>${draft ? '<button type="button" class="command-button task-action" id="wzUseEnriched">Use as my answer (marked “enriched”)</button>' : ''}</div>`;
+    const use = $('#wzUseEnriched');
+    if (use) use.addEventListener('click', () => {
+      const el = $('#wzAnswer'); if (el) el.value = data.reply.trim();
+      feedback('Assistant draft applied — still your answer to edit');
+    });
+  } catch (err) {
+    out.innerHTML = `<p class="odim">Assistant unavailable (${esc(String(err))}) — the deterministic question stands.</p>`;
+  }
+}
+
+function wzReadAnswer(q) {
+  if (q.kind === 'choice') {
+    const el = document.querySelector('#wzBody input[name="wzq"]:checked');
+    return el ? el.value : undefined;
+  }
+  if (q.kind === 'multi') {
+    return [...document.querySelectorAll('#wzBody input[name="wzq"]:checked')].map((el) => el.value);
+  }
+  return $('#wzAnswer')?.value ?? '';
+}
+
+async function wizardNext() {
+  if (!wizard) return;
+  if (wizard.step === 'findings') { wizard.step = 'interview'; renderWizard(); return; }
+  if (wizard.step === 'interview') {
+    const q = wizard.currentQ;
+    const value = wzReadAnswer(q);
+    const v = DreamfeedWizard.validateAnswer(q, value);
+    if (!v.ok) { wzSetError(v.error); return; }
+    wizard.answers[q.id] = value;
+    wizard.seen[q.id] = true;
+    wizard.history.push(q.id);
+    wzSaveDraft();
+    renderWizard();
+    return;
+  }
+  if (wizard.step === 'review') {
+    const pending = wizard.data.families.filter((f) => wizard.families[f] && !wizard.results[f]);
+    if (pending.length) { await wzProposeFamily(pending[0]); return; }
+    if (wizard.data.isRepo === false && !wizard.gitDone && $('#wzGit')?.checked) { await wzProposeGitInit(); return; }
+    wizard.step = 'done'; renderWizard(); return;
+  }
+  if (wizard.step === 'done') {
+    wzClearDraft();
+    closeWizard();
+    wizard = null;
+    await load();
+    goTab('daily');
+  }
+}
+
+function wizardBack() {
+  if (!wizard) return;
+  if (wizard.step === 'interview' && wizard.history.length) {
+    const prev = wizard.history.pop();
+    delete wizard.seen[prev];
+    renderWizard();
+    return;
+  }
+  if (wizard.step === 'review') { wizard.step = 'interview'; renderWizard(); return; }
+}
+
+function wizardSkip() {
+  if (!wizard || wizard.step !== 'interview') return;
+  const q = wizard.currentQ;
+  if (q.required) return;
+  wizard.seen[q.id] = true;
+  wizard.history.push(q.id);
+  wzSaveDraft();
+  renderWizard();
+}
+
+async function wzProposeFamily(family) {
+  wzSetError('');
+  const enabled = wizard.data.families.filter((f) => wizard.families[f]);
+  const out = await planIntent('scaffold-project', {
+    family,
+    answers: wizard.answers,
+    imports: family === 'os-core' ? { goals: wizard.data.imports.goals, operations: wizard.data.imports.operations } : {},
+    families: enabled,
+    asOfDate: new Date().toISOString().slice(0, 10),
+  });
+  if (out.error) {
+    if (/nothing to scaffold/i.test(out.error)) {
+      wizard.results[family] = 'skipped-empty';
+      wzSaveDraft(); renderWizard(); return;
+    }
+    wzSetError(`Scaffold plan refused: ${out.error}`);
+    return;
+  }
+  wizard.awaitingFamily = family;
+  openApprovalDialog(out.plan);
+}
+
+async function wzProposeGitInit() {
+  wzSetError('');
+  const out = await planIntent('git-init', {});
+  if (out.error) { wzSetError(`git init plan refused: ${out.error}`); return; }
+  wizard.awaitingGit = true;
+  openApprovalDialog(out.plan);
+}
+
+// Called from approveAndExecute when a wizard-raised plan lands.
+function wizardPlanExecuted(plan) {
+  if (!wizard) return;
+  if (plan.opName === 'scaffold-project' && wizard.awaitingFamily) {
+    wizard.results[wizard.awaitingFamily] = 'done';
+    wizard.awaitingFamily = null;
+    wzSaveDraft();
+    renderWizard();
+  } else if (plan.opName === 'git-init' && wizard.awaitingGit) {
+    wizard.gitDone = true;
+    wizard.awaitingGit = false;
+    wizard.data.isRepo = true;
+    wzSaveDraft();
+    renderWizard();
+  }
+}
+
+async function createNewProject() {
+  const errEl = $('#projectError');
+  const name = $('#npName')?.value.trim();
+  const parent = browse?.path;
+  if (!name) { errEl.textContent = 'Type a name for the new project folder.'; errEl.hidden = false; return; }
+  if (!parent) { errEl.textContent = 'Browse to the parent folder first.'; errEl.hidden = false; return; }
+  try {
+    const res = await postMutation('/api/project/create', { parent, name });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) { errEl.textContent = data.error || `refused (${res.status})`; errEl.hidden = false; return; }
+    project = data;
+    closeProjectDialog();
+    feedback(`Created ${name} — starting guided setup`);
+    await load();
+    openOnboardingWizard();
+  } catch (err) { errEl.textContent = String(err); errEl.hidden = false; }
+}
+
+// --- assistant connect dialog (D37) ----------------------------------------
+// First-run + settings surface for the assistant. Tier 1: one-click connect of
+// a detected local CLI (zero keys typed — reuses the machine's existing
+// login). Tier 2: provider preset + API key. The key is sent once over
+// loopback to the guarded config route and lands only in the gitignored
+// config; it is never rendered back.
+
+let asstPresets = [];
+
+function asstPresetById(id) { return asstPresets.find((p) => p.id === id); }
+
+function renderAsstForm() {
+  const preset = asstPresetById($('#asstPreset')?.value);
+  if (!preset) return;
+  $('#asstUrlWrap').hidden = !preset.urlEditable;
+  $('#asstModel').value = preset.defaultModel || '';
+  $('#asstKeyWrap').hidden = !preset.keyHeader;
+  const key = $('#asstKey'); if (key) { key.value = ''; key.placeholder = preset.keyHint || ''; }
+}
+
+async function connectAssistant(body) {
+  const errEl = $('#asstError'); errEl.hidden = true;
+  try {
+    const res = await postMutation('/api/assistant/config', body);
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) { errEl.textContent = data.error || `refused (${res.status})`; errEl.hidden = false; return; }
+    if (project) project.assistant = data.assistant;
+    feedback(body.action === 'clear' ? 'Assistant disconnected' : `Assistant connected (${data.assistant.preset || data.assistant.provider})`);
+    closeAssistantDialog();
+    renderInspector();
+  } catch (err) { errEl.textContent = String(err); errEl.hidden = false; }
+}
+
+function probeCliCard(c) {
+  return `<article class="card"><div class="card-head"><div class="card-title">${esc(c.label)}</div>${c.found ? pill('found', 'green') : pill('not found', 'grey')}</div>
+    ${c.found ? `<p class="odim">${esc(c.version || c.command)} — reuses this CLI's existing login; no key stored. If the CLI is not logged in, the first message will say so.</p><button type="button" class="command-button primary" data-asst-cli="${esc(c.id)}">Connect ${esc(c.command)}</button>` : `<p class="odim"><code>${esc(c.command)}</code> is not on PATH.</p>`}
+  </article>`;
+}
+
+async function openAssistantConnect() {
+  const dlg = $('#assistantDialog'); if (!dlg) return;
+  const errEl = $('#asstError'); errEl.hidden = true; errEl.textContent = '';
+  if (typeof dlg.showModal === 'function') { if (!dlg.open) dlg.showModal(); } else dlg.setAttribute('open', '');
+  // Current state + presets.
+  try {
+    const res = await guardedFetch('/api/assistant/config');
+    const data = await res.json();
+    asstPresets = data.presets || [];
+    const cur = $('#asstCurrent');
+    if (data.assistant && data.assistant.configured) {
+      cur.hidden = false;
+      cur.innerHTML = `Connected: <code>${esc(data.assistant.preset || data.assistant.provider)}</code>${data.assistant.model ? ` · model <code>${esc(data.assistant.model)}</code>` : ''}${data.assistant.cliCommand ? ` · <code>${esc(data.assistant.cliCommand)}</code>` : ''}`;
+      $('#asstDisconnect').hidden = false;
+    } else {
+      cur.hidden = true;
+      $('#asstDisconnect').hidden = true;
+    }
+    const sel = $('#asstPreset');
+    sel.innerHTML = asstPresets.map((p) => `<option value="${esc(p.id)}">${esc(p.label)}</option>`).join('');
+    renderAsstForm();
+  } catch (err) { errEl.textContent = String(err); errEl.hidden = false; }
+  // Probe (async; the dialog stays usable while it runs).
+  const probeEl = $('#asstProbe');
+  probeEl.innerHTML = '<p class="odim">Probing for installed assistant CLIs…</p>';
+  try {
+    const res = await guardedFetch('/api/assistant/probe');
+    const probe = await res.json();
+    if (!probe.probed) { probeEl.innerHTML = '<p class="odim">Probing disabled on this host.</p>'; }
+    else {
+      const ollama = probe.ollama && probe.ollama.found
+        ? `<article class="card"><div class="card-head"><div class="card-title">Ollama (local)</div>${pill('running', 'green')}</div><p class="odim">${esc((probe.ollama.models || []).join(', ') || 'no models pulled')}</p><button type="button" class="command-button primary" data-asst-ollama="${esc((probe.ollama.models || [])[0] || '')}">Connect Ollama</button></article>`
+        : '';
+      probeEl.innerHTML = `<div class="cards">${(probe.clis || []).map(probeCliCard).join('')}${ollama}</div>`;
+    }
+  } catch { probeEl.innerHTML = '<p class="odim">Probe unavailable.</p>'; }
+  probeEl.querySelectorAll('[data-asst-cli]').forEach((el) => el.addEventListener('click', () => connectAssistant({ provider: 'cli', cli: el.dataset.asstCli })));
+  probeEl.querySelectorAll('[data-asst-ollama]').forEach((el) => el.addEventListener('click', () => connectAssistant({ provider: 'http', preset: 'ollama', model: el.dataset.asstOllama || undefined })));
+}
+
+function closeAssistantDialog() {
+  const dlg = $('#assistantDialog'); if (!dlg) return;
+  const key = $('#asstKey'); if (key) key.value = '';
+  if (typeof dlg.close === 'function' && dlg.open) dlg.close(); else dlg.removeAttribute('open');
 }
 
 function renderMemoryOverview(item) {
@@ -1710,6 +2145,7 @@ function wireDynamic() {
   main.querySelectorAll('[data-file]').forEach((el) => el.addEventListener('click', (event) => { event.stopPropagation(); openEvidence(el.dataset.file); }));
   main.querySelectorAll('[data-command]').forEach((el) => el.addEventListener('click', (event) => { event.stopPropagation(); feedback(`Command is informational only: ${el.dataset.command}`); renderBottomPanel(); }));
   main.querySelectorAll('[data-gotab]').forEach((el) => el.addEventListener('click', (event) => { event.stopPropagation(); goTab(el.dataset.gotab); }));
+  main.querySelectorAll('[data-wizard-open]').forEach((el) => el.addEventListener('click', (event) => { event.stopPropagation(); openOnboardingWizard(); }));
   // D32: strategy override is presentation-only session state; loop selection
   // reuses the hot/dim edge grammar and is mutually exclusive with node selection.
   main.querySelectorAll('[data-strategy]').forEach((el) => el.addEventListener('click', (event) => { event.stopPropagation(); view.graphStrategy = el.dataset.strategy; view.loopSel = null; feedback(`Layout strategy: ${el.dataset.strategy} (session only, presentation-only)`); render(); }));
@@ -1967,6 +2403,25 @@ function bindShell() {
   $('#logo').addEventListener('click', () => goTab('daily'));
   $('#apApprove').addEventListener('click', approveAndExecute);
   $('#apCancel').addEventListener('click', closeApprovalDialog);
+  $('#wzNext').addEventListener('click', wizardNext);
+  $('#wzBack').addEventListener('click', wizardBack);
+  $('#wzSkip').addEventListener('click', wizardSkip);
+  $('#wzCancel').addEventListener('click', () => { closeWizard(); feedback('Setup paused — your answers are saved; reopen anytime.'); });
+  $('#npCreate').addEventListener('click', createNewProject);
+  $('#npName').addEventListener('keydown', (event) => { if (event.key === 'Enter') { event.preventDefault(); createNewProject(); } });
+  $('#asstPreset').addEventListener('change', renderAsstForm);
+  $('#asstSave').addEventListener('click', () => {
+    const preset = $('#asstPreset').value;
+    connectAssistant({
+      provider: 'http',
+      preset,
+      url: $('#asstUrl').value.trim() || undefined,
+      model: $('#asstModel').value.trim() || undefined,
+      apiKey: $('#asstKey').value.trim() || undefined,
+    });
+  });
+  $('#asstDisconnect').addEventListener('click', () => connectAssistant({ action: 'clear' }));
+  $('#asstCancel').addEventListener('click', closeAssistantDialog);
   $('#apConfirm').addEventListener('keydown', (event) => { if (event.key === 'Enter') { event.preventDefault(); approveAndExecute(); } });
   document.addEventListener('keydown', (event) => { if (event.key === 'Escape') { view.sidebarOpen = false; if (window.innerWidth <= 940) view.inspectorOpen = false; render(); } });
   // Queue keyboard reach: j/k move focus across queue rows; Enter/Space on a

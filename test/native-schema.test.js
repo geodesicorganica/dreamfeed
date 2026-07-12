@@ -107,3 +107,14 @@ test('degradation: missing os/ layout yields empty shapes, never errors', () => 
   assert.strictEqual(q.hasNative, false);
   assert.deepStrictEqual(q.counts, { today: 0, rolledOver: 0, upcoming: 0 });
 });
+
+test('D36: roadmap reads goal Phase structure as the primary source', () => {
+  const { buildRoadmap } = require('../src/topology');
+  const out = buildRoadmap(FIXTURE_ROOT);
+  assert.deepStrictEqual(out.errors, [], 'native roadmap has no CLAUDE.md complaints');
+  const labels = out.objects.map((o) => o.phase_label.value);
+  assert.deepStrictEqual(labels, ['Foundation', 'Polish'], 'phases come from os/goals, in order');
+  assert.strictEqual(out.objects[0].phase_label.tier, 'Canonical', 'declared phase labels are Canonical');
+  assert.match(out.objects[0].scope_summary.value, /Ship the Cockpit/, 'scope names the owning goal');
+  assert.strictEqual(out.objects[0].source_evidence.value.file, 'os/goals/ship-cockpit.md');
+});

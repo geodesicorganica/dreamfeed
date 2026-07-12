@@ -211,18 +211,62 @@ function degradedEdge(from, file, note) {
 // terms (Phase 1|1.5|2|3) are kept distinct from build-maturity terms
 // (crawl|walk|run) — never conflated.
 // ---------------------------------------------------------------------------
+// D36: the roadmap's PRIMARY source is the Phase structure of os/goals/ —
+// one source of truth with the work itself, generated and updated through the
+// governed lifecycle. The CLAUDE.md "## Phase sequencing" prose parser remains
+// as the explicit fallback for repos without a native layout (labels there
+// stay Derived/Candidate, exactly as before).
+function nativeRoadmap(repoRoot) {
+  const { hasNativeSchema, buildNativeState } = require('./nativeSchema');
+  if (!repoRoot || !hasNativeSchema(repoRoot)) return { objects: [], errors: [] };
+  const native = buildNativeState({ repoRoot });
+  const objects = [];
+  const byLabel = new Map();
+  for (const g of native.goals) {
+    const goalTitle = g.title && !g.title.nys ? g.title.value : g.id.value;
+    for (const ph of g.phases || []) {
+      const label = ph.title.value;
+      const milestones = ph.milestones.map((m) => m.title.value).join(', ');
+      const scopePart = `Goal "${goalTitle}"${milestones ? ` — ${milestones}` : ''}`;
+      if (byLabel.has(label)) {
+        const existing = byLabel.get(label);
+        existing.scope_summary = field(`${existing.scope_summary.value}; ${scopePart}`.slice(0, 400), 'Derived');
+        continue;
+      }
+      const obj = {
+        objectType: 'roadmap_phase',
+        // Declared in a git-versioned goal file the operator approved — the
+        // label itself is Canonical; the aggregation stays Derived.
+        phase_label: field(label, 'Canonical'),
+        scope_summary: field(scopePart.slice(0, 400), 'Derived'),
+        target_timing: g.target_date && !g.target_date.nys ? field(g.target_date.value, 'Derived') : nys('Candidate'),
+        source_evidence: field({ file: g.source_evidence.value.file, locator: `Phase: ${label}` }, 'Canonical'),
+      };
+      byLabel.set(label, obj);
+      objects.push(obj);
+    }
+  }
+  return { objects, errors: [] };
+}
+
 function buildRoadmap(repoRoot = REPO_ROOT) {
+  const native = nativeRoadmap(repoRoot);
+  if (native.objects.length) return native;
   const objects = [];
   const errors = [];
   const claudePath = path.join(repoRoot, 'CLAUDE.md');
+  // Universal-repo semantics (2026-07-12): CLAUDE.md is a FALLBACK roadmap
+  // source (os/goals is primary, D36). Its absence — or the absence of the
+  // "## Phase sequencing" section — is a normal state for any generic repo,
+  // not a parse error. Only a present-but-unparseable section still errors.
   let content;
   try { content = fs.readFileSync(claudePath, 'utf8'); }
-  catch (err) { return { objects, errors: [{ path: 'CLAUDE.md', error: String(err.message || err) }] }; }
+  catch { return { objects, errors }; }
 
   const lines = content.split(/\r?\n/);
   // Find the "## Phase sequencing" section.
   let i = lines.findIndex(l => /^##\s+Phase sequencing/i.test(l));
-  if (i === -1) return { objects, errors: [{ path: 'CLAUDE.md', error: 'Phase sequencing section not found' }] };
+  if (i === -1) return { objects, errors };
   for (i = i + 1; i < lines.length; i++) {
     if (/^##\s/.test(lines[i])) break; // next section
     const m = lines[i].match(/^-\s+\*?\*?Phase\s+([0-9.]+)\b([^:]*):\s*(.*)$/i);

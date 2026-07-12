@@ -22,6 +22,8 @@ const DEFAULTS = Object.freeze({
   'release-abandon': 'approve',
   'release-mark-shipped': 'founder',
   'promote-topology': 'approve',
+  'scaffold-project': 'approve',
+  'git-init': 'approve',
   'git-add': 'approve',
   'git-commit': 'approve',
   'git-branch': 'approve',

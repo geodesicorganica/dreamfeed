@@ -18,7 +18,15 @@ const { loadPolicy } = require('./commands/policy');
 const { approvePlan, executePlan, rollbackExecution } = require('./commands/executor');
 const cpStore = require('./commands/store');
 const { appendEvent, readLedger, verifyChain } = require('./commands/ledger');
-const { runAssistant, isConfigured: assistantConfigured } = require('./assistant/adapter');
+const {
+  runAssistant,
+  buildConfigFromRequest,
+  saveConfig: saveAssistantConfig,
+  clearConfig: clearAssistantConfig,
+  describeConfig: describeAssistantConfig,
+  publicPresets: assistantPresets,
+} = require('./assistant/adapter');
+const { probe: probeAssistants } = require('./assistant/probe');
 const {
   ASSISTANT_MEMORY_LIMIT,
   ASSISTANT_CONTEXT_BODY_CAP,
@@ -276,7 +284,7 @@ function projectDescriptor(req, extra = {}) {
     restoreWarning,
     recent: recentRoots.map((r) => ({ path: r, label: path.basename(r) || r })),
     pickers: { native: projectPicker.nativeAvailable(), providers: projectPicker.listProviders() },
-    assistant: { configured: assistantConfigured() },
+    assistant: describeAssistantConfig(), // redacted (D37): never key/headers
     ...(req && guarded.ok ? { actionToken: ACTION_TOKEN } : {}),
     ...extra,
   };
@@ -320,6 +328,7 @@ const STATIC = {
   '/styles.css': { file: 'styles.css', type: 'text/css; charset=utf-8' },
   '/app.js': { file: 'app.js', type: 'text/javascript; charset=utf-8' },
   '/layout.js': { file: 'layout.js', type: 'text/javascript; charset=utf-8' },
+  '/wizard.js': { file: 'wizard.js', type: 'text/javascript; charset=utf-8' },
   // Canonical Dreamfeed assets and token CSS are deliberately exposed through
   // fixed, read-only routes. The production cockpit does not import the
   // design-system React/CDN prototype or allow arbitrary docs paths.
@@ -344,6 +353,7 @@ function emptyState() {
     generatedAt: now.toISOString(),
     asOfDate: now.toISOString().slice(0, 10),
     configured: false, readOnly: true, rootToken: null, isDefaultRoot: false,
+    stakeportFamilyPresent: false,
     ui: { alias: 'Dreamfeed', canonicalName: 'Dreamfeed Command Center' },
     thresholdsSource: null, thresholds: {}, sources: [],
     strategicInitiatives: [], workItems: [], approvals: [], approvalQueue: [],
@@ -375,6 +385,12 @@ const MUTATING_ROUTES = Object.freeze({
   '/api/executions/:id/rollback': ['POST'],
   '/api/work/tasks/transition': ['POST'],
   '/api/assistant/:mode/messages': ['POST'],
+  // D37: managed assistant config (create/update/clear). The key never rides
+  // the intent→plan lifecycle — plans/approvals persist in the sidecar.
+  '/api/assistant/config': ['POST'],
+  // D36: greenfield folder creation + project switch. Scaffolding itself rides
+  // the existing lifecycle routes as the scaffold-project intent kind.
+  '/api/project/create': ['POST'],
 });
 const BODY_CAP = 1024 * 1024;
 
@@ -529,7 +545,7 @@ function handleMutation(req, res, url, body) {
     if (!plan) { sendJson(res, 404, { error: 'plan not found', code: 'not-found' }); return; }
     const out = executePlan(plan, { actor: 'operator', health: getRepoHealth(currentRoot) }, currentRoot);
     if (out.error) { sendEngineError(res, out); return; }
-    if (plan.opName === 'promote-topology' && out.execution && out.execution.status === 'succeeded') {
+    if ((plan.opName === 'promote-topology' || plan.opName === 'scaffold-project') && out.execution && out.execution.status === 'succeeded') {
       clearDiscoveryCacheFor(currentRoot);
     }
     sendJson(res, 200, { execution: out.execution });
@@ -553,6 +569,39 @@ function handleMutation(req, res, url, body) {
       const responseMemory = { ...memory, citationWarning: memoryCitationWarning(out.reply, memory.memoryIdsUsed) };
       sendJson(res, 200, { reply: out.reply, mode: params.mode, memory: responseMemory });
     });
+  }
+  if (m.pattern === '/api/assistant/config') {
+    // D37 managed config. The key arrives only in this body; it is never
+    // ledgered, never echoed, and never rides the intent→plan lifecycle.
+    if (body.action === 'clear') {
+      const err = clearAssistantConfig();
+      if (err) { sendJson(res, 500, { error: err, code: 'io' }); return; }
+      appendEvent({ type: 'assistant-config-updated', cleared: true });
+      sendJson(res, 200, { assistant: describeAssistantConfig() });
+      return;
+    }
+    const built = buildConfigFromRequest(body);
+    if (built.error) { sendJson(res, 400, { error: built.error, code: 'validation' }); return; }
+    const err = saveAssistantConfig(built.config);
+    if (err) { sendJson(res, 500, { error: err, code: 'io' }); return; }
+    appendEvent({ type: 'assistant-config-updated', provider: built.config.provider, preset: built.config.preset || null });
+    sendJson(res, 200, { assistant: describeAssistantConfig() });
+    return;
+  }
+  if (m.pattern === '/api/project/create') {
+    // D36 greenfield entry: create ONE new folder under an existing parent and
+    // switch to it. The scaffold itself rides the governed lifecycle after.
+    const { createProjectFolder } = require('./onboarding/folders');
+    const made = createProjectFolder(body.parent, body.name);
+    if (made.error) { sendJson(res, 400, { error: made.error, code: 'validation' }); return; }
+    rememberRecent(currentRoot);
+    currentRoot = canonicalRoot(made.root);
+    restoreWarning = null;
+    const persistWarning = persistConfig();
+    appendEvent({ type: 'project-created', root: rootToken(currentRoot) });
+    clearDiscoveryCacheFor(currentRoot);
+    sendJson(res, 201, projectDescriptor(req, persistWarning ? { persistWarning } : {}));
+    return;
   }
   if (m.pattern === '/api/work/tasks/transition') {
     // Daily-queue sugar: intent + plan in one call; auto-class plans execute
@@ -682,6 +731,58 @@ const server = http.createServer((req, res) => {
       discoveryCache = { key, data };
       sendJson(res, 200, data);
     } catch (err) { sendJson(res, 500, { fatal: String(err.message || err) }); }
+    return;
+  }
+  // D36 onboarding descriptor: question tree + discovery-derived prefills.
+  // Sensitive (discloses repo-derived drafts), so behind the action guard.
+  if (url === '/api/onboarding') {
+    const g = guardMutation(req);
+    if (!g.ok) { sendJson(res, g.status, { error: g.error }); return; }
+    try {
+      const { QUESTIONS } = require('./onboarding/questions');
+      const { FAMILIES } = require('./onboarding/generate');
+      if (!currentRoot) {
+        sendJson(res, 200, {
+          configured: false, questions: QUESTIONS, families: FAMILIES,
+          imports: { goals: [], operations: [], roadmapPhases: [] },
+          prefills: { answers: {}, evidence: {} },
+          discoverySummary: { candidates: 0, byKind: {} },
+          hasNativeSchema: false,
+          assistant: describeAssistantConfig(),
+        });
+        return;
+      }
+      const { buildImports } = require('./onboarding/importers');
+      const imp = buildImports(currentRoot);
+      sendJson(res, 200, {
+        configured: true,
+        rootToken: rootToken(currentRoot),
+        questions: QUESTIONS,
+        families: FAMILIES,
+        imports: { goals: imp.goals, operations: imp.operations, roadmapPhases: imp.roadmapPhases },
+        prefills: imp.prefills,
+        discoverySummary: imp.discoverySummary,
+        hasNativeSchema: buildNativeState({ repoRoot: currentRoot }).hasNative,
+        isRepo: getRepoHealth(currentRoot).isRepo,
+        assistant: describeAssistantConfig(),
+      });
+    } catch (err) { sendJson(res, 500, { fatal: String(err && err.message || err) }); }
+    return;
+  }
+  // D37 CLI probe: spawns local version checks, so guarded like /api/dirs.
+  if (url === '/api/assistant/probe') {
+    const g = guardMutation(req);
+    if (!g.ok) { sendJson(res, g.status, { error: g.error }); return; }
+    probeAssistants()
+      .then((out) => sendJson(res, 200, out))
+      .catch((err) => sendJson(res, 500, { fatal: String(err && err.message || err) }));
+    return;
+  }
+  // D37 redacted config descriptor + presets (the key is structurally absent).
+  if (url === '/api/assistant/config') {
+    const g = guardMutation(req);
+    if (!g.ok) { sendJson(res, g.status, { error: g.error }); return; }
+    sendJson(res, 200, { assistant: describeAssistantConfig(), presets: assistantPresets() });
     return;
   }
   // Native-schema projections (D31; read-only GETs). Empty shapes when no

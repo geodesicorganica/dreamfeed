@@ -121,6 +121,10 @@
           <span class="command-spacer"></span>
           <button type="button" class="command-button primary" id="pbUse">Open this folder</button>
         </div>
+        <div class="pb-new">
+          <input id="npName" type="text" autocomplete="off" spellcheck="false" placeholder="new-project-name" />
+          <button type="button" class="command-button" id="npCreate" title="Create a new folder here and start guided setup">＋ New project here</button>
+        </div>
       </div>
 
       <div class="project-recent" id="projectRecentWrap" hidden>
@@ -151,6 +155,54 @@
     </div>
   </dialog>
 
+  <dialog id="wizardDialog" class="project-dialog wizard-dialog" aria-label="Project onboarding">
+    <div class="project-form">
+      <h2 id="wzTitle">Set up this project</h2>
+      <div id="wzProgress" class="wz-progress"></div>
+      <div id="wzBody" class="wz-body"><p class="odim">Loading…</p></div>
+      <p id="wzError" class="project-error" hidden></p>
+      <div class="project-actions">
+        <button type="button" class="command-button" id="wzBack" hidden>Back</button>
+        <button type="button" class="command-button" id="wzSkip" hidden>Skip</button>
+        <span class="command-spacer"></span>
+        <button type="button" class="command-button" id="wzCancel">Close</button>
+        <button type="button" class="command-button primary" id="wzNext">Continue</button>
+      </div>
+    </div>
+  </dialog>
+
+  <dialog id="assistantDialog" class="project-dialog" aria-label="Connect your assistant">
+    <div class="project-form">
+      <h2>Connect your assistant</h2>
+      <p class="project-hint">The assistant proposes and drafts — it never executes. Connection details stay in a gitignored local config; keys never enter this repo, the ledger, or any project.</p>
+      <div id="asstCurrent" class="project-current" hidden></div>
+      <div class="detail-sec">Detected on this machine</div>
+      <div id="asstProbe" class="asst-probe"><p class="odim">Probing for installed assistant CLIs…</p></div>
+      <div class="detail-sec">Or connect a provider with an API key</div>
+      <div class="asst-form">
+        <label for="asstPreset">Provider</label>
+        <select id="asstPreset"></select>
+        <div id="asstUrlWrap" hidden>
+          <label for="asstUrl">Endpoint URL</label>
+          <input id="asstUrl" type="text" autocomplete="off" spellcheck="false" placeholder="endpoint URL, e.g. …/v1/chat/completions" />
+        </div>
+        <label for="asstModel">Model</label>
+        <input id="asstModel" type="text" autocomplete="off" spellcheck="false" />
+        <div id="asstKeyWrap">
+          <label for="asstKey">API key</label>
+          <input id="asstKey" type="password" autocomplete="off" spellcheck="false" />
+        </div>
+        <button type="button" class="command-button primary" id="asstSave">Connect</button>
+      </div>
+      <p id="asstError" class="project-error" hidden></p>
+      <div class="project-actions">
+        <button type="button" class="command-button" id="asstDisconnect" hidden>Disconnect</button>
+        <span class="command-spacer"></span>
+        <button type="button" class="command-button" id="asstCancel">Close</button>
+      </div>
+    </div>
+  </dialog>
+
   <dialog id="approvalDialog" class="project-dialog" aria-label="Approve plan">
     <div class="project-form">
       <h2>Approve plan</h2>
@@ -171,6 +223,7 @@
   </dialog>
 
   <script src="/layout.js"></script>
+  <script src="/wizard.js"></script>
   <script src="/app.js"></script>
 </body>
 </html>

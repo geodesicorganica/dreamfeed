@@ -26,7 +26,7 @@ const { checkDrift } = require('./plans');
 const store = require('./store');
 const { appendEvent } = require('./ledger');
 
-const GIT_SUBCOMMANDS = new Set(['add', 'commit', 'switch', 'push']);
+const GIT_SUBCOMMANDS = new Set(['add', 'commit', 'switch', 'push', 'init']);
 
 let running = null; // serial executor: id of the in-flight execution
 
@@ -64,8 +64,13 @@ function executePlan(plan, { actor = 'operator', health } = {}, repoRoot) {
   const d = checkDrift(plan, repoRoot);
   if (d.drifted) return { error: `source changed since approval: ${d.path}`, code: 'drift' };
   const usesGit = plan.ops.some((o) => o.type === 'git');
-  if (usesGit && health && health.isRepo === false) {
+  // git-init is exempted from the isRepo gate BY OP NAME ONLY (D36): it is the
+  // op that makes the folder a repo. Every other git op still requires one.
+  if (usesGit && plan.opName !== 'git-init' && health && health.isRepo === false) {
     return { error: `git operations unavailable: ${health.safeReason || 'not a git repository'}`, code: 'unsafe' };
+  }
+  if (plan.opName === 'git-init' && health && health.isRepo === true) {
+    return { error: 'already a git repository', code: 'state' };
   }
 
   const execution = store.create('executions', 'exe', {

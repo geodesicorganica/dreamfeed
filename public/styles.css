@@ -190,6 +190,27 @@ section.group { margin: 0 0 20px; }
 .project-manual { border: 1px solid var(--df-line); border-radius: var(--radius); padding: 6px 8px; display: grid; gap: 6px; }
 .project-manual summary { cursor: pointer; }
 
+/* Onboarding wizard (D36) */
+.wizard-dialog .project-form { max-width: 640px; }
+.wz-progress { color: var(--df-text-muted); font: 500 var(--fs-50)/1 var(--font-mono); letter-spacing: .04em; text-transform: uppercase; }
+.wz-body { display: grid; gap: 8px; min-height: 120px; }
+.wz-q { margin: 0; font: 600 var(--fs-100)/var(--lh-read) var(--font-sans); }
+.wz-input { display: grid; gap: 6px; }
+.wz-input textarea, .wz-input input[type="text"] { width: 100%; padding: 7px 9px; background: var(--df-bg-sunken); border: 1px solid var(--df-line); border-radius: var(--radius); color: var(--df-text-1); font-family: var(--font-mono); font-size: var(--fs-75); }
+.wz-opt { display: flex; align-items: baseline; gap: 8px; padding: 4px 2px; font-size: var(--fs-75); color: var(--df-text-1); cursor: pointer; }
+.wz-families { display: grid; gap: 2px; border: 1px solid var(--df-line); border-radius: var(--radius); padding: 8px; }
+.wz-evidence { border-left: 2px solid var(--df-amber); padding-left: 8px; }
+.wz-enriched { border: 1px solid var(--df-line); border-radius: var(--radius); padding: 8px; display: grid; gap: 6px; }
+.wz-done { color: var(--df-green, #7bd88f); }
+.pb-new { display: flex; gap: 8px; align-items: center; padding: 6px 8px; border-top: 1px solid var(--df-line); }
+.pb-new input { flex: 1; padding: 6px 8px; background: var(--df-bg-sunken); border: 1px solid var(--df-line); border-radius: var(--radius); color: var(--df-text-1); font-family: var(--font-mono); font-size: var(--fs-75); }
+
+/* Assistant connect dialog (D37) */
+.asst-form { display: grid; gap: 6px; }
+.asst-form select { width: 100%; padding: 7px 9px; background: var(--df-bg-sunken); border: 1px solid var(--df-line); border-radius: var(--radius); color: var(--df-text-1); font-family: var(--font-mono); font-size: var(--fs-75); }
+.asst-probe .cards { display: grid; gap: 8px; grid-template-columns: 1fr; }
+.asst-probe .card { margin: 0; }
+
 /* In-app folder browser (explorer) */
 .project-browser { border: 1px solid var(--df-line); border-radius: var(--radius); background: var(--df-bg-sunken); display: grid; gap: 0; overflow: hidden; }
 .pb-bar { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-bottom: 1px solid var(--df-line); }
