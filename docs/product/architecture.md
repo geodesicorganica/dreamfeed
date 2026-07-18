@@ -8,11 +8,13 @@ Date: 2026-06-23
 
 Dreamfeed has one brand lifecycle: the current Stakeport-internal Command
 Center, the Phase 1.3 project workspace, and the eventual Phase 2 product are
-one brand. The current Command Center is a separately deployed, read-only, localhost-only
+one brand. The current Command Center is a separately deployed, localhost-only
 customer-zero reference — extracted to `c:\Projects\dreamfeed-command-center`
-(D29 resolved 2026-07-01; was at `tools/command-center/`). This package does
-not add a write path to that server, alter its six-object parser, or use its
-API as an execution transport.
+(D29 resolved 2026-07-01; was at `tools/command-center/`). It began read-only
+under Gate F; **D31 added the governed write path (PS-003 / Gate G)** — writes
+reach the selected project only through the intent → plan → approval → execute
+→ immutable ledger lifecycle, never as free-form API execution, and the Gate C
+six-object parser is unchanged.
 
 The product reference lives in `parallel-products/agentic-business-os/`. It is
 portable by copying that directory. Its runtime is local-only and dependency

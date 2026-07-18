@@ -19,7 +19,7 @@ npm start
 ```
 
 One-time setup per clone — enable the commit gate (runs `npm test`, including
-the PS-002/Gate F constraint tests, before every commit):
+the PS-003 / Gate G constraint tests, before every commit):
 
 ```
 git config core.hooksPath .githooks

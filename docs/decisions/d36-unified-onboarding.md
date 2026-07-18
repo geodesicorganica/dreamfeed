@@ -1,7 +1,9 @@
 # D36 — Unified Onboarding: Interview, Governed Scaffold, Governed Import
 
 **Date:** 2026-07-07
-**Status:** Resolved — founder-accepted 2026-07-07 (grill-me discovery, seven forks)
+**Status:** Design-accepted 2026-07-07 (grill-me discovery, seven forks);
+build founder-accepted 2026-07-12 (verification record gate closed —
+`docs/history/d36-d37-verification-2026-07-07.md`)
 **Owner:** Founder
 **Implements:** the "Grill Me" onboarding sprint from the product vision
 (`docs/brand/research/persona-icp-model.md` §6–7) as a governed, deterministic

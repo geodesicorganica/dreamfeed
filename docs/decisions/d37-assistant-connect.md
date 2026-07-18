@@ -1,7 +1,9 @@
 # D37 — Assistant Connect: First-Run Setup, CLI Detection, Managed Config
 
 **Date:** 2026-07-07
-**Status:** Resolved — founder-accepted 2026-07-07 (grill-me discovery fork 4)
+**Status:** Design-accepted 2026-07-07 (grill-me discovery fork 4);
+build founder-accepted 2026-07-12 (verification record gate closed —
+`docs/history/d36-d37-verification-2026-07-07.md`)
 **Owner:** Founder
 **Implements:** removes the hand-authored `assistant-config.json` friction from
 onboarding. The D31 config file and adapter stay; the app now writes the file

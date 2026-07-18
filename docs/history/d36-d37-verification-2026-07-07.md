@@ -1,7 +1,11 @@
 # D36 + D37 Verification Record — 2026-07-07
 
 Self-verification of the Unified Onboarding (D36) and Assistant Connect (D37)
-builds. **Founder gate: open — not self-accepted.**
+builds. **Founder gate: CLOSED — builds founder-accepted 2026-07-12** (design
+accepted via the grilled forks 2026-07-07; the build gate this record left open
+was reviewed and accepted by the founder on 2026-07-12, distinct from
+self-verification). Universal-repo hardening pass (addendum below) is covered
+by the same acceptance.
 
 ## What was built
 

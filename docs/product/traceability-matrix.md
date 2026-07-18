@@ -10,9 +10,11 @@ Status labels are deliberately narrow:
 
 - `implemented` — covered by code and verification **in this package**.
 - `reference build` — implemented only in the stakeport_os Phase 1.3/2
-  reference build; not present in this package. Several of these capabilities
-  (e.g. execution controls) are **prohibited** here under PS-002 Phase 1 /
-  Gate F until a founder-approved execution phase exists.
+  reference build; not present in this package. A founder-approved execution
+  phase now exists — **D31 (PS-003 / Gate G)** authorized the governed write
+  lifecycle — so the earlier Gate F prohibition on execution controls no longer
+  holds; capabilities still absent here are reference-build scope, not
+  Gate-F-prohibited.
 - `deferred with explicit gate` — blocked by named external evidence.
 - `not applicable` — prohibited for this reference.
 

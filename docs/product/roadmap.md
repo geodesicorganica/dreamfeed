@@ -42,20 +42,23 @@ representing Brief B gate 5b as accepted or the product as externally validated.
 
 ### Phase 1.3 — IDE Substitution (non-technical founder surface)
 
-> **Status 2026-07-07:** first slice **in progress under D31 (PS-003 / Gate G)**
-> in the standalone repo — governed write lifecycle, Dreamfeed-native
-> Goals/Operations schema, daily execution queue, approval dialog, assistant
-> dock, safe named git actions, governed memory, and D34 memory trust hardening
-> are implemented. D35 adds local verification/release evidence records and
-> release candidates. Proposed file edits, branch-management UI, deploy
-> triggers, public release creation, and free-form terminal remain gated (D36+
-> candidates — D32 landed 2026-07-06 as the topology/discovery/promotion
-> adoption bridge; D33/D34 landed governed memory and memory inspection
-> hardening).
+> **Status 2026-07-12:** in progress under D31 (PS-003 / Gate G) in the
+> standalone repo — governed write lifecycle, Dreamfeed-native Goals/Operations
+> schema, daily execution queue, approval dialog, assistant dock, safe named
+> git actions, governed memory (D33) and memory trust hardening (D34), local
+> verification/release evidence (D35), and the unified onboarding wizard +
+> managed assistant connect (D36/D37) are implemented. Proposed free-form file
+> edits, branch-management UI, build/test-command surfacing, and deploy triggers
+> remain gated — sequenced as **D38+ candidates** in
+> `docs/product/vision-execution-plan.md` (the earlier "D36+ candidates"
+> label predated D36/D37 landing as onboarding/assistant and is superseded).
 Replaces the VSCode + Claude Code workflow for non-technical founders.
-The command center gains file editing, diff review, branch management,
-commit/build/test visibility, deploy triggers, and terminal access —
-all surfaced through a GUI rather than a text editor and terminal.
+The command center gains file editing, diff review, branch management, and
+commit/build/test visibility — all surfaced through a GUI. Terminal-class work
+is reached through **named, policy-declared governed operations, not a
+free-form terminal**: the non-technical operator never needs a shell, and
+free-form terminal is explicitly out of scope (CLAUDE.md) and not required for
+the Phase 1.3 gate.
 
 **Target operator:** Non-technical founders running an agentic business who
 cannot or do not want to operate in VSCode + Claude Code directly.
