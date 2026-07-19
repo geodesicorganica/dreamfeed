@@ -85,11 +85,19 @@ in Stage 0, not silently decided here):**
 >   backlog (T1 = "Grill and record D38"). **Ordering note:** the plan below
 >   sequenced stakeport_os first; the founder chose self-adoption first
 >   (own-repo-before-customer-zero is safety-first — the original ordering was
->   about exercising the import path, not risk). stakeport_os brownfield
->   adoption (14 goal drafts waiting) is **deferred to a later, founder-driven
->   session**.
-> - **Remaining before Stage 1:** run stakeport_os adoption when ready; one
->   week of dogfood with frictions captured as `os/goals/` items.
+>   about exercising the import path, not risk).
+> - **stakeport_os adopted** 2026-07-19 (governed os-core scaffold, all 14
+>   initiative-derived goals + policy + blockers): `hasNative=true`, 0 parse
+>   errors, Daily Queue = 15 Today tasks (7 goals carry real imported
+>   work-item tasks; 7 are placeholder stubs the founder fills in). Files left
+>   **uncommitted in stakeport_os** for founder review/commit in that repo;
+>   control-plane ledgered in the dreamfeed sidecar. stakeport now carries dual
+>   representation by design — the Gate-C strategic view (initiatives) and the
+>   native execution view (os/goals → Daily Queue) coexist.
+> - **Remaining before Stage 1:** founder reviews/commits stakeport's os/ files
+>   in that repo; one week of dogfood (elapsed-time evidence, rung 3) with
+>   frictions captured as `os/goals/` items. Stage 0 build/setup is otherwise
+>   complete.
 
 **Prerequisites:** none — everything here is founder action plus documentation
 write-through.
